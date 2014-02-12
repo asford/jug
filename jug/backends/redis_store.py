@@ -27,6 +27,8 @@ redis_store: store based on a redis backend
 
 import re
 import logging
+logger = logging.getLogger("jug")
+
 from base64 import b64encode, b64decode
 
 from jug.backends.encode import encode, decode
@@ -65,7 +67,7 @@ class redis_store(base_store):
                 del redis_params['port']
             else:
                 redis_params['port'] = int( redis_params['port'] )
-        logging.info('connecting to %s' % redis_params)
+        logger.info('connecting to %s' % redis_params)
 
         self.redis = redis.Redis(**redis_params)
 

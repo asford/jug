@@ -28,6 +28,7 @@ import os
 import os.path
 import re
 import logging
+logger = logging.getLogger("jug")
 
 from . import task
 from .task import Task
@@ -114,7 +115,7 @@ def _sigterm(_,__):
 def execution_loop(tasks, options, tasks_executed, tasks_loaded):
     from time import sleep
 
-    logging.info('Execute start (%s tasks)' % len(tasks))
+    logger.info('Execute start (%s tasks)' % len(tasks))
     while tasks:
         upnext = [] # tasks that can be run
         for i in range(int(options.execute_nr_wait_cycles)):
@@ -139,30 +140,32 @@ def execution_loop(tasks, options, tasks_executed, tasks_loaded):
                     break
             if upnext:
                 break
-            logging.info('waiting %s secs for an open task...' % options.execute_wait_cycle_time_secs)
+            logger.info('waiting %s secs for an open task...' % options.execute_wait_cycle_time_secs)
             sleep(int(options.execute_wait_cycle_time_secs))
+
         if not upnext:
-            logging.info('No tasks can be run!')
+            logger.info('No tasks can be run!')
             break
+
         for t in upnext:
             if t.can_load():
-                logging.info('Loadable %s...' % t.name)
+                logger.info('Loadable %s...' % t.name)
                 tasks_loaded[t.name] += 1
                 continue
             locked = False
             try:
                 locked = t.lock()
                 if t.can_load(): # This can be true if the task ran between the check above and this one
-                    logging.info('Loadable %s...' % t.name)
+                    logger.info('Loadable %s...' % t.name)
                     tasks_loaded[t.name] += 1
                 elif locked:
-                    logging.info('Executing %s...' % t.name)
+                    logger.info('Executing %s...' % t.name)
                     t.run(debug_mode=options.debug)
                     tasks_executed[t.name] += 1
                     if options.aggressive_unload:
                         t.unload_recursive()
                 else:
-                    logging.info('Already in execution %s...' % t.name)
+                    logger.info('Already in execution %s...' % t.name)
             except Exception as e:
                 if options.pdb:
                     import sys
@@ -201,11 +204,11 @@ def execution_loop(tasks, options, tasks_executed, tasks_loaded):
                     debugger.interaction(None, tb)
                 else:
                     import itertools
-                    logging.critical('Exception while running %s: %s' % (t.name,e))
+                    logger.critical('Exception while running %s: %s' % (t.name,e))
                     for other in itertools.chain(upnext, tasks):
                         for dep in other.dependencies():
                             if dep is t:
-                                logging.critical('Other tasks are dependent on this one! Parallel processors will be held waiting!')
+                                logger.critical('Other tasks are dependent on this one! Parallel processors will be held waiting!')
                 if not options.execute_keep_going:
                     raise
             finally:
@@ -219,12 +222,14 @@ def execute(options):
     from signal import signal, SIGTERM
 
     signal(SIGTERM,_sigterm)
+
     tasks = task.alltasks
     tasks_executed = defaultdict(int)
     tasks_loaded = defaultdict(int)
     store = None
+
     noprogress = 0
-    while noprogress < 2:
+    while noprogress < int(options.execute_nr_wait_cycles):
         del tasks[:]
         store,jugspace = init(options.jugfile, options.jugdir, store=store)
         if options.debug:
@@ -235,16 +240,18 @@ def execute(options):
         previous = sum(tasks_executed.values())
         execution_loop(tasks, options, tasks_executed, tasks_loaded)
         after = sum(tasks_executed.values())
+
         done = not jugspace.get('__jug__hasbarrier__', False)
+
         if done:
             break
+
         if after == previous:
             from time import sleep
             noprogress += 1
             sleep(int(options.execute_wait_cycle_time_secs))
     else:
-        logging.info('No tasks can be run!')
-
+        logger.info('Execute ending, no tasks can be run.')
 
 
     print_task_summary_table(options, [("Executed", tasks_executed), ("Loaded", tasks_loaded)])
@@ -371,7 +378,7 @@ def init(jugfile=None, jugdir=None, on_error='exit', store=None):
     except BarrierError:
         jugspace['__jug__hasbarrier__'] = True
     except Exception as e:
-        logging.critical("Could not import file '%s' (error: %s)", jugfile, e)
+        logger.critical("Could not import file '%s' (error: %s)", jugfile, e)
         if on_error == 'exit':
             import traceback
             print(traceback.format_exc())
@@ -412,7 +419,7 @@ def main(argv=None):
     elif options.cmd == 'webstatus':
         webstatus(options)
     else:
-        logging.critical('Jug: unknown command: \'%s\'' % options.cmd)
+        logger.critical('Jug: unknown command: \'%s\'' % options.cmd)
     if store is not None:
         store.close()
 
@@ -420,5 +427,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        logging.critical('Unhandled Jug Error!')
+        logger.critical('Unhandled Jug Error!')
         raise

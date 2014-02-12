@@ -130,7 +130,7 @@ import subprocess
  
  
 def get_terminal_size():
-    """ get_terminal_size()
+    """ getTerminalSize()
      - get width and height of console
      - works on linux,os x,windows,cygwin(windows)
      originally retrieved from:
