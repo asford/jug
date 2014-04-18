@@ -213,6 +213,11 @@ def status(options):
     Parameters
     ----------
     options : jug options
+
+    Returns
+    -------
+    tasks_finished : int 
+        Count of finsihed tasks.
     '''
     if options.status_mode == 'cached':
         try:

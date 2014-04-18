@@ -40,6 +40,17 @@ def _lockname(name):
 
 
 class dict_store(base_store):
+    """ In-memory dict-based store. Does not support multiple processes, primarily designed for testing.
+
+    
+    Attrs
+    -----
+    backend :
+        Filename to load data from on init and save data to on close
+    counts : dict(int) 
+        Method access counters
+
+    """
     def __init__(self, backend=None):
         '''
         dict_store(backend=None)

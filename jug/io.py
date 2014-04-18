@@ -89,13 +89,11 @@ def write_metadata(result, metadata_fname, metadata_format='yaml'):
 
 import textwrap
 
-def print_task_summary_table(options, groups):
-    """Print task summary table given tasks groups.
+def render_task_summary_table(groups):
+    """Render task summary table with given task groups."""
+    result_lines = []
 
-    groups - [(group_title, {(task_name, count)})] grouped summary of tasks.
-    """
     num_groups = len(groups)
-
     names = list()
     for _, group_data in groups:
         names.extend(n for n in group_data.keys() if not n in names) 
@@ -106,19 +104,33 @@ def print_task_summary_table(options, groups):
     line_format = ("%12s" * num_groups) + '  ' + '%-' + str(name_width) + 's'
     format_size = (12 * num_groups) + 2 + name_width
 
-    options.print_out(line_format % tuple([g for g, _ in groups] + ["Task name"]))
-    options.print_out('-' * format_size)
+    result_lines.append(line_format % tuple([g for g, _ in groups] + ["Task name"]))
+    result_lines.append('-' * format_size)
 
     for n in names:
         name_lines = textwrap.wrap(n, width=name_width - 4)
-        options.print_out(line_format % tuple([g[n] for _, g in groups] + name_lines[:1]))
+        result_lines.append(line_format % tuple([g[n] for _, g in groups] + name_lines[:1]))
 
         for name_extension in name_lines[1:]:
-            options.print_out(line_format % tuple( ([""] * num_groups) + [(" " * 4) + name_extension]))
+            result_lines.append(line_format % tuple( ([""] * num_groups) + [(" " * 4) + name_extension]))
 
-    options.print_out('.' * format_size)
-    options.print_out(line_format % tuple([sum(g.values()) for _,g in groups] + ["Total"]))
-    options.print_out()
+    result_lines.append('.' * format_size)
+    result_lines.append(line_format % tuple([sum(g.values()) for _,g in groups] + ["Total"]))
+    result_lines.append("")
+
+    return result_lines
+
+
+def print_task_summary_table(options, groups):
+    """Print task summary table given tasks groups.
+
+    groups - [(group_title, {(task_name, count)})] grouped summary of tasks.
+    """
+
+    summary_lines = render_task_summary_table( groups )
+
+    for l in summary_lines:
+        options.print_out(l)
 
 # Terminal size calculation
 

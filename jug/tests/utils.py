@@ -1,8 +1,21 @@
 from .task_reset import task_reset
 
-def simple_execute():
-    from jug.jug import execution_loop
+def simple_execute(tasks = None, options = None):
+    from jug.jug import Executor
     from jug.task import alltasks
     from jug.options import default_options
-    from collections import defaultdict
-    execution_loop(alltasks, default_options, defaultdict(int), defaultdict(int))
+
+    if options is None:
+        options = default_options
+
+    if tasks is None:
+        tasks = list(alltasks)
+
+    executor = Executor(
+            tasks,
+            options.execute_wait_cycle_time_secs,
+            options.aggressive_unload,
+            options.debug,
+            options.pdb,
+            options.execute_keep_going)
+    return executor.execute_loop( options.execute_nr_wait_cycles )

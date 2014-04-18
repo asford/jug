@@ -22,17 +22,17 @@
 #  THE SOFTWARE.
 
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 import sys
 import os
 import os.path
 import re
 import logging
-logger = logging.getLogger("jug")
+logger = logging.getLogger(__name__)
 
+from .task import Task, Tasklet
 from . import task
-from .task import Task
-from .io import print_task_summary_table
+from .io import print_task_summary_table, render_task_summary_table
 from .subcommands.status import status
 from .subcommands.webstatus import webstatus
 from .subcommands.shell import shell
@@ -81,7 +81,7 @@ def invalidate(store, options):
         # A bare function name perhaps?
         invalidate_re = re.compile(r'\.' + invalid_name )
     def isinvalid(t):
-        if isinstance(t, task.Tasklet):
+        if isinstance(t, Tasklet):
             return isinvalid(t.base)
         h = t.hash()
         if h in cache:
@@ -112,107 +112,147 @@ def invalidate(store, options):
 def _sigterm(_,__):
     sys.exit(1)
 
-def execution_loop(tasks, options, tasks_executed, tasks_loaded):
-    from time import sleep
+class Executor(object):
+    def __init__(self, tasks, execute_wait_cycle_time_secs, aggressive_unload, debug_mode, pdb, execute_keep_going):
+        logger.info("Beginning execution: <%s tasks>", len(tasks))
 
-    logger.info('Execute start (%s tasks)' % len(tasks))
-    while tasks:
-        upnext = [] # tasks that can be run
-        for i in range(int(options.execute_nr_wait_cycles)):
-            max_cannot_run = min(len(tasks), 128)
-            for i in range(max_cannot_run):
-                # The argument for this is the following:
-                # if T' is dependent on the result of T, it is better if the
-                # processor that ran T, also runs T'. By having everyone else
-                # push T' to the end of tasks, this is more likely to happen.
+        self.tasks = tasks
+
+        self.execute_wait_cycle_time_secs = execute_wait_cycle_time_secs
+        self.aggressive_unload            = aggressive_unload
+        self.debug_mode                   = debug_mode
+        self.pdb                          = pdb
+        self.execute_keep_going           = execute_keep_going
+
+    def execute_loop(self, execute_nr_wait_cycles):
+        from time import sleep
+
+        wait_cycles = int(execute_nr_wait_cycles)
+
+        tasks_current  = self.tasks
+        tasks_total_executed = []
+        tasks_finished = []
+
+        while tasks_current:
+            tasks_waiting  = []
+            tasks_ready    = []
+            tasks_locked   = []
+            tasks_executed = []
+
+            for t in tasks_current:
+                if t.can_load():
+                    tasks_finished.append(t)
+                elif t.can_run():
+                    tasks_ready.append(t)
+                else:
+                    tasks_waiting.append(t)
+
+            task_summary_table = render_task_summary_table(
+                    [
+                        ("waiting" , Counter( [t.display_name for t in tasks_waiting])),
+                        ("ready" , Counter( [t.display_name for t in tasks_ready])),
+                        ("finished" , Counter( [t.display_name for t in tasks_finished])),
+                    ])
+            logger.info("Pre-execute task status:\n" + "\n".join(task_summary_table))
+
+            for t in tasks_ready:
+                # Check if task is loadable. If so discard from task list.
+                # Lock task for execution.
+                # If loadable due to execution during lock operation discard from task list.
+                # If lock failed push task back onto tasks queue.
+                # If locked then execute.
+                if t.can_load():
+                    tasks_finished.append(t)
+                    continue
+                
+                locked = False
+                try:
+                    locked = t.lock()
+
+                    if t.can_load():
+                        tasks_finished.append(t)
+                        continue
+                    elif not locked:
+                        tasks_locked.append(t)
+                    else:
+                        executed = self.execute_task(t)
+                        if executed:
+                            # Executed is false only if exception was generated and ignored
+                            # during task execution.
+                            # In which case task should be dropped from the task list.
+                            tasks_executed.append(t)
+                finally:
+                    if locked:
+                        t.unlock()
+
+            tasks_total_executed.extend(tasks_executed)
+            tasks_current = tasks_waiting + tasks_locked
+
+            if tasks_current and not tasks_executed:
+                if wait_cycles > 0:
+                    wait_cycles -= 1
+                    logger.info("Waiting %s seconds for open task.", self.execute_wait_cycle_time_secs)
+                    sleep(int(self.execute_wait_cycle_time_secs))
+                else:
+                    logger.info("Finished wait cycles without open task.")
+                    return tasks_executed
+
+        logger.info("No tasks available to run.")
+        return tasks_total_executed
+
+    def execute_task(self, task):
+        try:
+            logger.info("Begin task: %s", task.display_name)
+            task.run(debug_mode = self.debug_mode)
+            logger.info("Ended task: %s", task.display_name)
+            if self.aggressive_unload:
+                task.unload_recursive()
+            return True
+
+        except Exception as e:
+            if self.pdb:
+                import sys
+                _,_, tb = sys.exc_info()
+
+                # The code below is a complex attempt to load IPython
+                # debugger which works with multiple versions of IPython.
                 #
-                # Furthermore, this avoids always querying the same tasks.
-                if tasks[0].can_run():
-                    break
-                tasks.append(tasks.pop(0))
-            while tasks and tasks[0].can_run():
-                upnext.append(tasks.pop(0))
-            if upnext:
-                break
-            for ti,t in enumerate(tasks):
-                if t.can_run():
-                    upnext.append(tasks.pop(ti))
-                    break
-            if upnext:
-                break
-            logger.info('waiting %s secs for an open task...' % options.execute_wait_cycle_time_secs)
-            sleep(int(options.execute_wait_cycle_time_secs))
-
-        if not upnext:
-            logger.info('No tasks can be run!')
-            break
-
-        for t in upnext:
-            if t.can_load():
-                logger.info('Loadable %s...' % t.name)
-                tasks_loaded[t.name] += 1
-                continue
-            locked = False
-            try:
-                locked = t.lock()
-                if t.can_load(): # This can be true if the task ran between the check above and this one
-                    logger.info('Loadable %s...' % t.name)
-                    tasks_loaded[t.name] += 1
-                elif locked:
-                    logger.info('Executing %s...' % t.name)
-                    t.run(debug_mode=options.debug)
-                    tasks_executed[t.name] += 1
-                    if options.aggressive_unload:
-                        t.unload_recursive()
-                else:
-                    logger.info('Already in execution %s...' % t.name)
-            except Exception as e:
-                if options.pdb:
-                    import sys
-                    _,_, tb = sys.exc_info()
-
-                    # The code below is a complex attempt to load IPython
-                    # debugger which works with multiple versions of IPython.
-                    #
-                    # Unfortunately, their API kept changing prior to the 1.0.
+                # Unfortunately, their API kept changing prior to the 1.0.
+                try:
+                    import IPython
                     try:
-                        import IPython
+                        import IPython.core.debugger
                         try:
-                            import IPython.core.debugger
-                            try:
-                                from IPython.terminal.ipapp import load_default_config
-                                config = load_default_config()
-                                colors = config.TerminalInteractiveShell.colors
-                            except:
-                                import IPython.core.ipapi
-                                ip = IPython.core.ipapi.get()
-                                colors = ip.colors
-                            debugger = IPython.core.debugger.Pdb(colors)
-                        except ImportError:
-                            #Fallback to older version of IPython API
-                            import IPython.ipapi
-                            import IPython.Debugger
-                            shell = IPython.Shell.IPShell(argv=[''])
-                            ip = IPython.ipapi.get()
-                            debugger=IPythong.Debugger.Pdb(ip.options.colors)
+                            from IPython.terminal.ipapp import load_default_config
+                            config = load_default_config()
+                            colors = config.TerminalInteractiveShell.colors
+                        except:
+                            import IPython.core.ipapi
+                            ip = IPython.core.ipapi.get()
+                            colors = ip.colors
+                        debugger = IPython.core.debugger.Pdb(colors)
                     except ImportError:
-                        #Fallback to standard debugger
-                        import pdb
-                        debugger = pdb.Pdb()
+                        #Fallback to older version of IPython API
+                        import IPython.ipapi
+                        import IPython.Debugger
+                        ipshell = IPython.Shell.IPShell(argv=[''])
+                        ip = IPython.ipapi.get()
+                        debugger=IPython.Debugger.Pdb(ip.options.colors)
+                except ImportError:
+                    #Fallback to standard debugger
+                    import pdb
+                    debugger = pdb.Pdb()
 
-                    debugger.reset()
-                    debugger.interaction(None, tb)
-                else:
-                    import itertools
-                    logger.critical('Exception while running %s: %s' % (t.name,e))
-                    for other in itertools.chain(upnext, tasks):
-                        for dep in other.dependencies():
-                            if dep is t:
-                                logger.critical('Other tasks are dependent on this one! Parallel processors will be held waiting!')
-                if not options.execute_keep_going:
-                    raise
-            finally:
-                if locked: t.unlock()
+                debugger.reset()
+                debugger.interaction(None, tb)
+            else:
+                logger.critical('Exception while running %s: %s' % (task.name,e))
+
+            if self.execute_keep_going:
+                return False
+            else:
+                raise
+
 def execute(options):
     '''
     execute(options)
@@ -224,37 +264,46 @@ def execute(options):
     signal(SIGTERM,_sigterm)
 
     tasks = task.alltasks
+
     tasks_executed = defaultdict(int)
-    tasks_loaded = defaultdict(int)
     store = None
 
-    noprogress = 0
-    while noprogress < int(options.execute_nr_wait_cycles):
+    from time import sleep
+    wait_cycles = int(options.execute_nr_wait_cycles)
+
+    while wait_cycles > 0:
         del tasks[:]
-        store,jugspace = init(options.jugfile, options.jugdir, store=store)
+        store, jugspace = init(options.jugfile, options.jugdir, store=store)
         if options.debug:
             for t in tasks:
                 # Trigger hash computation:
                 t.hash()
 
-        previous = sum(tasks_executed.values())
-        execution_loop(tasks, options, tasks_executed, tasks_loaded)
-        after = sum(tasks_executed.values())
+        has_barrier = jugspace.get('__jug__hasbarrier__', False)
+        executor = Executor(
+                tasks,
+                options.execute_wait_cycle_time_secs,
+                options.aggressive_unload,
+                options.debug,
+                options.pdb,
+                options.execute_keep_going)
 
-        done = not jugspace.get('__jug__hasbarrier__', False)
+        tasks_executed_in_cycle = executor.execute_loop(0 if has_barrier else int(options.execute_nr_wait_cycles))
 
-        if done:
+        for t in tasks_executed_in_cycle:
+            tasks_executed[t.display_name] += 1
+
+        if not has_barrier:
             break
 
-        if after == previous:
-            from time import sleep
-            noprogress += 1
+        if not tasks_executed_in_cycle:
+            wait_cycles -= 1
+            logger.info("Waiting %s seconds to recycle barrier.", options.execute_wait_cycle_time_secs)
             sleep(int(options.execute_wait_cycle_time_secs))
     else:
         logger.info('Execute ending, no tasks can be run.')
 
-
-    print_task_summary_table(options, [("Executed", tasks_executed), ("Loaded", tasks_loaded)])
+    print_task_summary_table(options, [("Executed", tasks_executed)])
 
 def cleanup(store, options):
     '''
@@ -268,7 +317,6 @@ def cleanup(store, options):
         tasks = task.alltasks
         removed = store.cleanup(tasks)
     options.print_out('Removed %s files' % removed)
-
 
 def check(store, options):
     '''
