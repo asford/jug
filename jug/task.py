@@ -66,7 +66,19 @@ class Task(TaskletMixin):
 Write an email to the authors if you feel you have a strong reason to use them (they are a bit
 tricky to support since the general code relies on the function name)''')
 
-        self.name = '%s.%s' % (f.__module__, f.__name__)
+        if hasattr(f, "__jug_name__"):
+            self.name = f.__jug_name__
+        else:
+            if hasattr( f, "__objclass__"):
+                self.name = "%s.%s.%s" % (f.__objclass__.__module__,f.__objclass__.__name__, f.__name__ ) 
+            else:
+                self.name = '%s.%s' % (f.__module__, f.__name__)
+
+        if hasattr(f, "__jug_display_name__"):
+            self.display_name = f.__jug_display_name__
+        else:
+            self.display_name = self.name
+
         self.f = f
         self.args = args
         self.kwargs = kwargs

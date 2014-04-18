@@ -94,7 +94,7 @@ def load_jugfile(options):
         deps[i] = [h2idx[d.hash() if isinstance(d,Task) else d._base_hash()]
                         for d in t.dependencies()]
         hash = t.hash()
-        ht.append( (i, t.name, hash, unknown) )
+        ht.append( (i, t.display_name, hash, unknown) )
         h2idx[hash] = i
 
     rdeps = defaultdict(list)
@@ -112,7 +112,7 @@ def update_status(store, ht, deps, rdeps):
 
     store = memoize_store(store, list_base=True)
     dirty = {}
-    for i,name,hash,status in ht:
+    for i, name, hash,status in ht:
         nstatus = None
         if status == finished or store.can_load(hash):
             tasks_finished[name] += 1
@@ -186,21 +186,20 @@ def _status_nocache(options):
     store,_ = jug.init(options.jugfile, options.jugdir)
     Task.store = memoize_store(store, list_base=True)
 
-    task_names = set(t.name for t in task.alltasks)
     tasks_waiting = defaultdict(int)
     tasks_ready = defaultdict(int)
     tasks_running = defaultdict(int)
     tasks_finished = defaultdict(int)
     for t in task.alltasks:
         if t.can_load():
-            tasks_finished[t.name] += 1
+            tasks_finished[t.display_name] += 1
         elif t.can_run():
             if t.is_locked():
-                tasks_running[t.name] += 1
+                tasks_running[t.display_name] += 1
             else:
-                tasks_ready[t.name] += 1
+                tasks_ready[t.display_name] += 1
         else:
-            tasks_waiting[t.name] += 1
+            tasks_waiting[t.display_name] += 1
     _print_status(options, tasks_waiting, tasks_ready, tasks_running, tasks_finished)
     return sum(tasks_finished.values())
 
