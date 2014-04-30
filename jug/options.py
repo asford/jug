@@ -38,6 +38,7 @@ from datetime import datetime
 import string
 import six
 import sys
+from os import path
 
 class Options(object):
     def __init__(self, next):
@@ -303,10 +304,8 @@ def parse(cmdlist=None, optionsfile=None):
     _maybe_set('execute_keep_going')
     _maybe_set('status_cache_clear')
 
-    cmdline.jugdir = cmdline.jugdir % {
-                'date': datetime.now().strftime('%Y-%m-%d'),
-                'jugfile': cmdline.jugfile[:-3],
-                }
+    cmdline.jugdir = resolve_jugdir( cmdline.jugfile, cmdline.jugdir )
+
     try:
         nlevel = {
             'DEBUG' : logging.DEBUG,
@@ -318,27 +317,17 @@ def parse(cmdlist=None, optionsfile=None):
         pass
     return cmdline
 
+def resolve_jugdir(jugfile, jugdir_format = default_options.jugdir):
+    """Format jugdir specification using given jugfile.
 
-def set_jugdir(jugdir):
-    '''
-    store = set_jugdir(jugdir)
+    jugfile - Source jugfile.
+    jugdir_format - Format string for jug dir, the following variables are available:
+        - date
+        - jugfile (without extension)
 
-    Sets the jugdir. This is the programmatic equivalent of passing
-    ``--jugdir=...`` on the command line.
+    returns jugdir
+    """
 
-    Parameters
-    ----------
-    jugdir : str
-
-    Returns
-    -------
-    store : a jug backend
-    '''
-    from .task import Task
-    from . import backends
-    if jugdir is None:
-        jugdir = 'jugdata'
-    store = backends.select(jugdir)
-    Task.store = store
-    return store
-
+    return jugdir_format % dict( 
+            jugfile = path.splitext(jugfile)[0],
+            date = datetime.now().strftime('%Y-%m-%d') )

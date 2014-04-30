@@ -368,8 +368,7 @@ def _check_or_sleep_until(store, sleep_until):
                     pass
     return 0
 
-
-def init(jugfile=None, jugdir=None, on_error='exit', store=None):
+def init(jugfile="jugfile", jugdir=None, on_error='exit', store=None):
     '''
     store,jugspace = init(jugfile={'jugfile'}, jugdir={'jugdata'}, on_error='exit', store=None)
 
@@ -393,13 +392,15 @@ def init(jugfile=None, jugdir=None, on_error='exit', store=None):
     jugspace : dictionary
     '''
     import imp
-    from .options import set_jugdir
+    from .options import resolve_jugdir
     assert on_error in ('exit', 'propagate'), 'jug.init: on_error option is not valid.'
 
-    if jugfile is None:
-        jugfile = 'jugfile'
+    if jugdir is None:
+        jugdir = resolve_jugdir(jugfile)
+
     if store is None:
         store = set_jugdir(jugdir)
+
     sys.path.insert(0, os.path.abspath('.'))
 
     # The reason for this implementation is that it is the only that seems to
@@ -438,6 +439,26 @@ def init(jugfile=None, jugdir=None, on_error='exit', store=None):
     store = Task.store
     return store, jugspace
 
+def set_jugdir(jugdir):
+    '''
+    store = set_jugdir(jugdir)
+
+    Sets the jugdir. This is the programmatic equivalent of passing
+    ``--jugdir=...`` on the command line.
+
+    Parameters
+    ----------
+    jugdir : str
+
+    Returns
+    -------
+    store : a jug backend
+    '''
+    from .task import Task
+    from . import backends
+    store = backends.select(jugdir)
+    Task.store = store
+    return store
 
 def main(argv=None):
     from .options import parse

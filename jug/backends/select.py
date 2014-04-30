@@ -20,6 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
+import logging
+logger = logging.getLogger(__name__)
 
 from . import redis_store
 from . import file_store
@@ -41,6 +43,7 @@ def select(jugdir):
     -------
       store : A jug data store
     '''
+    logger.debug("Select jugdir=%r", jugdir)
     if type(jugdir) != str:
         return jugdir
     if jugdir.startswith('redis:'):
