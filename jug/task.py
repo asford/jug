@@ -13,6 +13,7 @@ There are two main alternatives:
 - Rely on the ``TaskGenerator`` decorator as a shortcut for this.
 '''
 
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 from .hash import new_hash_object, hash_update, hash_one
 
@@ -26,7 +27,7 @@ __all__ = [
     ]
 
 alltasks = []
-
+    
 class _getitem(object):
     def __init__(self, slice):
         self.slice = slice
@@ -45,10 +46,64 @@ class _getitem(object):
         return 'jug.task._getitem(%s)' % self.slice
 
 class TaskletMixin(object):
+    """Mixin class that adds Tasklet based __getitem__ overloads."""
     def __getitem__(self, slice):
         return Tasklet(self, _getitem(slice))
 
-class Task(TaskletMixin):
+class TaskBase(TaskletMixin):
+    """Base class for all task objects, defines task interface."""
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def value(self):
+        """Return task value, loading if needed."""
+        raise NotImplementedError("TaskBase.value")
+    
+    @abstractmethod
+    def can_load(self, store=None):
+        """Check if task result is available.
+        
+        Parameters
+        ----------
+        store : Store, optional
+
+            Backend store to check for task result, default store if None.
+        """
+
+        raise NotImplementedError("TaskBase.can_load")
+
+    @abstractmethod
+    def can_run(self):
+        """Check if task can be run.
+        
+        Returns
+        -------
+        can_run : bool
+            True if task can be run.
+        """
+
+        raise NotImplementedError("TaskBase.can_run")
+    
+    @abstractmethod
+    def dependencies(self):
+        """Iterate over all first-level dependencies of task.
+
+        Returns
+        -------
+        deps : generator
+            A generator over all of `self`'s dependencies
+
+        See Also
+        --------
+        recursive_dependencies : retrieve dependencies recursively
+        """
+        raise NotImplementedError("TaskBase.dependencies")
+
+    def hash(self):
+        '''Returns the hash for this task.'''
+        return self.__jug_hash__()
+
+class Task(TaskBase):
     '''
     T = Task(f, dep0, dep1,..., kw_arg0=kw_val0, kw_arg1=kw_val1, ...)
 
@@ -61,10 +116,7 @@ class Task(TaskletMixin):
     # __slots__ = ('name', 'f', 'args', 'kwargs', '_hash','_lock')
     def __init__(self, f, *args, **kwargs):
         if getattr(f, 'func_name', '') == '<lambda>':
-            raise ValueError('''jug.Task does not work with lambda functions!
-
-Write an email to the authors if you feel you have a strong reason to use them (they are a bit
-tricky to support since the general code relies on the function name)''')
+            raise ValueError('''jug.Task does not work with lambda functions.''')
 
         if hasattr(f, "__jug_name__"):
             self.name = f.__jug_name__
@@ -114,14 +166,15 @@ tricky to support since the general code relies on the function name)''')
         return self.f(*args,**kwargs)
 
 
-    def _get_result(self):
-        if not hasattr(self, '_result'): self.load()
+    @property
+    def result(self):
+        """Get task result value, loading if needed."""
+        if not hasattr(self, "_result"):
+            _result = self.load()
         return self._result
 
-    result = property(_get_result, doc='Result value')
     def value(self):
         return self.result
-
 
     def can_run(self):
         '''
@@ -236,17 +289,6 @@ tricky to support since the general code relies on the function name)''')
             store = self.store
         return store.can_load(self.hash())
 
-    def hash(self):
-        '''
-        fname = t.hash()
-
-        Returns the hash for this task.
-
-        The results are cached, so the first call can be much slower than
-        subsequent calls.
-        '''
-        return self.__jug_hash__()
-
     def _compute_set_hash(self):
         M = new_hash_object()
         M.update(self.name.encode('utf-8'))
@@ -263,6 +305,11 @@ tricky to support since the general code relies on the function name)''')
             hash_error_msg += 'Typical cause is that a Task function changed the value of an argument (which messes up downstream computations).'
             raise RuntimeError(hash_error_msg)
     def __jug_hash__(self):
+        """Calculate and return hash for this task.
+
+        The results are cached, so the first call can be much slower than
+        subsequent calls.
+        """
         return self._compute_set_hash()
 
 
@@ -332,7 +379,7 @@ tricky to support since the general code relies on the function name)''')
             self._lock = self.store.getlock(self.hash())
         return self._lock.is_locked()
 
-class Tasklet(TaskletMixin):
+class Tasklet(TaskBase):
     '''
     Tasklet
 
@@ -359,7 +406,9 @@ class Tasklet(TaskletMixin):
 
             f(value(base))
         '''
+        assert isinstance(base, TaskBase)
         self.base = base
+
         self.f = f
         self.unload = self.base.unload
         self.unload_recursive = self.base.unload_recursive
@@ -373,9 +422,13 @@ class Tasklet(TaskletMixin):
     def can_load(self):
         return self.base.can_load()
 
-    def _base_hash(self):
+    def can_run(self):
+        return self.base.can_run()
+
+    def base_hash(self):
+        """Return hash of base object."""
         if isinstance(self.base, Tasklet):
-            return self.base._base_hash()
+            return self.base.base_hash()
         return self.base.hash()
 
     def __jug_hash__(self):

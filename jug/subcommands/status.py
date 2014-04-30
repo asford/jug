@@ -28,7 +28,7 @@ import jug
 from ..task import recursive_dependencies
 from .. import task
 from .. import backends
-from ..task import Task
+from ..task import Task, Tasklet
 from ..backends import memoize_store
 from ..io import print_task_summary_table
 
@@ -91,7 +91,7 @@ def load_jugfile(options):
     ht = []
     deps = {}
     for i,t in enumerate(task.alltasks):
-        deps[i] = [h2idx[d.hash() if isinstance(d,Task) else d._base_hash()]
+        deps[i] = [h2idx[d.hash() if not isinstance(d,Tasklet) else d.base_hash()]
                         for d in t.dependencies()]
         hash = t.hash()
         ht.append( (i, t.display_name, hash, unknown) )
