@@ -164,7 +164,7 @@ class Executor(object):
                 if t.can_load():
                     tasks_finished.append(t)
                     continue
-                
+
                 locked = False
                 try:
                     locked = t.lock()
@@ -220,17 +220,10 @@ class Executor(object):
                 # Unfortunately, their API kept changing prior to the 1.0.
                 try:
                     import IPython
+
                     try:
                         import IPython.core.debugger
-                        try:
-                            from IPython.terminal.ipapp import load_default_config
-                            config = load_default_config()
-                            colors = config.TerminalInteractiveShell.colors
-                        except:
-                            import IPython.core.ipapi
-                            ip = IPython.core.ipapi.get()
-                            colors = ip.colors
-                        debugger = IPython.core.debugger.Pdb(colors)
+                        debugger = IPython.core.debugger.Pdb()
                     except ImportError:
                         #Fallback to older version of IPython API
                         import IPython.ipapi
