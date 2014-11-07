@@ -27,7 +27,7 @@ __all__ = [
     ]
 
 alltasks = []
-    
+
 class _getitem(object):
     def __init__(self, slice):
         self.slice = slice
@@ -58,11 +58,11 @@ class TaskBase(TaskletMixin):
     def value(self):
         """Return task value, loading if needed."""
         raise NotImplementedError("TaskBase.value")
-    
+
     @abstractmethod
     def can_load(self, store=None):
         """Check if task result is available.
-        
+
         Parameters
         ----------
         store : Store, optional
@@ -75,7 +75,7 @@ class TaskBase(TaskletMixin):
     @abstractmethod
     def can_run(self):
         """Check if task can be run.
-        
+
         Returns
         -------
         can_run : bool
@@ -83,7 +83,7 @@ class TaskBase(TaskletMixin):
         """
 
         raise NotImplementedError("TaskBase.can_run")
-    
+
     @abstractmethod
     def dependencies(self):
         """Iterate over all first-level dependencies of task.
@@ -98,6 +98,32 @@ class TaskBase(TaskletMixin):
         recursive_dependencies : retrieve dependencies recursively
         """
         raise NotImplementedError("TaskBase.dependencies")
+
+    @abstractmethod
+    def unload(self):
+        '''
+        t.unload()
+
+        Unload results from memory.
+        '''
+        raise NotImplementedError("TaskBase.unload")
+
+    def unload_recursive(self):
+        '''
+        t.unload_recursive()
+
+        Equivalent to::
+
+            for tt in recursive_dependencies(t): tt.unload()
+        '''
+        def checked_unload_recursive(t, visited):
+            if id(t) not in visited:
+                visited.add(id(t))
+                t.unload()
+                for dep in t.dependencies():
+                    checked_unload_recursive(dep, visited)
+
+        checked_unload_recursive(self, set())
 
     def hash(self):
         '''Returns the hash for this task.'''
@@ -122,7 +148,7 @@ class Task(TaskBase):
             self.name = f.__jug_name__
         else:
             if hasattr( f, "__objclass__"):
-                self.name = "%s.%s.%s" % (f.__objclass__.__module__,f.__objclass__.__name__, f.__name__ ) 
+                self.name = "%s.%s.%s" % (f.__objclass__.__module__,f.__objclass__.__name__, f.__name__ )
             else:
                 self.name = '%s.%s' % (f.__module__, f.__name__)
 
@@ -230,23 +256,6 @@ class Task(TaskBase):
         if hasattr(self, '_result'):
             del self._result
 
-    def unload_recursive(self):
-        '''
-        t.unload_recursive()
-
-        Equivalent to::
-
-            for tt in recursive_dependencies(t): tt.unload()
-        '''
-        def checked_unload_recursive(t, visited):
-            if id(t) not in visited:
-                visited.add(id(t))
-                t.unload()
-                for dep in t.dependencies():
-                    checked_unload_recursive(dep, visited)
-
-        checked_unload_recursive(self, set())
-
     def dependencies(self):
         '''
         for dep in task.dependencies():
@@ -271,7 +280,7 @@ class Task(TaskBase):
         while queue:
             deps = queue.pop()
             for dep in deps:
-                if isinstance(dep, (Task, Tasklet)):
+                if isinstance(dep, TaskBase):
                     yield dep
                 elif isinstance(dep, (list, tuple)):
                     queue.append(dep)
@@ -410,8 +419,9 @@ class Tasklet(TaskBase):
         self.base = base
 
         self.f = f
-        self.unload = self.base.unload
-        self.unload_recursive = self.base.unload_recursive
+
+    def unload(self):
+        self.base.unload()
 
     def dependencies(self):
         yield self.base
@@ -507,7 +517,7 @@ def value(elem):
     value : object
         The result of the task ``obj``
     '''
-    if isinstance(elem, (Task, Tasklet)):
+    if isinstance(elem, TaskBase):
         return elem.value()
     elif type(elem) == list:
         return [value(e) for e in elem]
@@ -598,7 +608,6 @@ class TaskGenerator(object):
     def __call__(self, *args, **kwargs):
         return Task(self.f, *args, **kwargs)
 
-
 # This is lower case to be used like a function
 class iteratetask(object):
     '''
@@ -631,7 +640,6 @@ class iteratetask(object):
 
     def __len__(self):
         return self.n
-
 
 def describe(t):
     '''

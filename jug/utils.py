@@ -23,7 +23,8 @@
 
 import os
 
-from .task import Task, Tasklet, TaskGenerator, value
+from .task import Task, Tasklet, TaskBase, TaskGenerator, value
+from .hash import new_hash_object, hash_update
 
 __all__ = [
     'timed_path',
@@ -81,7 +82,7 @@ def identity(x):
     -------
     x : x
     '''
-    if isinstance(x, (Task, Tasklet)):
+    if isinstance(x, TaskBase):
         return x
     t = Task(_identity, x)
     t.name = 'identity'
@@ -113,3 +114,58 @@ class CustomHash(object):
 
     def __jug_value__(self):
         return value(self.obj)
+
+def lazy_load(values):
+    return LazyTaskContainer(values)
+
+class LazyTaskContainer(TaskBase):
+    def __init__(self, target):
+        self.target = target
+
+    def value(self):
+        return self.target
+
+    def dependencies(self):
+        queue = [self.target]
+        while queue:
+            deps = queue.pop()
+            for dep in deps:
+                if isinstance(dep, TaskBase):
+                    yield dep
+                elif isinstance(dep, (list, tuple)):
+                    queue.append(dep)
+                elif isinstance(dep, dict):
+                    queue.append(iter(dep.values()))
+
+    def can_run(self):
+        for dep in self.dependencies():
+            if not hasattr(dep, '_result') and not dep.can_load():
+                return False
+        return True
+
+    def can_load(self):
+        for dep in self.dependencies():
+            if not dep.can_load():
+                return False
+        return True
+
+    def unload(self):
+        pass
+
+    def _compute_set_hash(self):
+        import six
+        M = new_hash_object()
+        M.update(six.b('LazyTask'))
+        hash_update(M, [("target", self.target)])
+        value = M.hexdigest().encode('utf-8')
+
+        self.__jug_hash__ = lambda : value
+        return value
+
+    def __jug_hash__(self):
+        """Calculate and return hash for this task.
+
+        The results are cached, so the first call can be much slower than
+        subsequent calls.
+        """
+        return self._compute_set_hash()
