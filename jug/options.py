@@ -29,6 +29,7 @@ Options
 - cmd: command to run.
 - aggressive_unload: --aggressive-unload
 - invalid_name: --invalid
+- dry_run: --dry_run
 - argv: Arguments not captured by jug (for script use)
 - print_out: Print function to be used for output (behaves like Python3's print)
 '''
@@ -64,6 +65,7 @@ default_options.jugfile = 'jugfile.py'
 default_options.cmd = None
 default_options.aggressive_unload = False
 default_options.invalid_name = None
+default_options.dry_run = False
 default_options.argv = None
 default_options.print_out = six.print_
 default_options.status_mode = 'no-cached'
@@ -137,6 +139,9 @@ invalidate OPTIONS
 ------------------
 --invalid=TASK-NAME
     Task name to invalidate
+
+--dry_run
+    Do not delete results, just check invalidation status.
 
 
 Examples
@@ -237,6 +242,7 @@ def parse(cmdlist=None, optionsfile=None):
                     dest='aggressive_unload',
                     help='Do not keep intermediate results in memory (for jobs which require a lot of memory)')
     parser.add_option('--invalid',action='store',dest='invalid_name')
+    parser.add_option('--dry_run',action='store_true',dest='dry_run')
     parser.add_option('--jugdir',
                     action='store',
                     dest='jugdir',
@@ -280,6 +286,9 @@ def parse(cmdlist=None, optionsfile=None):
     if options.invalid_name and cmdline.cmd != 'invalidate':
         usage(error='invalid-name is only useful for invalidate subcommand')
         return
+    if options.dry_run and cmdline.cmd != 'invalidate':
+        usage(error='dry_run is only useful for invalidate subcommand')
+        return
     if cmdline.cmd == 'invalidate' and not options.invalid_name:
         usage(error='invalidate subcommand requires ``invalid-name`` option')
         return
@@ -297,6 +306,7 @@ def parse(cmdlist=None, optionsfile=None):
     _maybe_set('verbose')
     _maybe_set('aggressive_unload')
     _maybe_set('invalid_name')
+    _maybe_set('dry_run')
     _maybe_set('pdb')
     _maybe_set('debug')
     _maybe_set('execute_nr_wait_cycles')
@@ -328,6 +338,6 @@ def resolve_jugdir(jugfile, jugdir_format = default_options.jugdir):
     returns jugdir
     """
 
-    return jugdir_format % dict( 
+    return jugdir_format % dict(
             jugfile = path.splitext(jugfile)[0],
             date = datetime.now().strftime('%Y-%m-%d') )

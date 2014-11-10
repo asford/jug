@@ -21,6 +21,7 @@ __all__ = [
     'Task',
     'Tasklet',
     'recursive_dependencies',
+    'walk_dependencies',
     'TaskGenerator',
     'iteratetask',
     'value',
@@ -499,6 +500,32 @@ def recursive_dependencies(t, max_level=-1):
         yield dep
         for d2 in recursive_dependencies(dep, max_level - 1):
             yield d2
+
+def walk_dependencies(t):
+    """Walk dependency tree from given task t.
+
+    Walk dependency tree top-down yielding (path, dependencies) tuple at each
+    encountered dependency. Walk may be modified by removing entries from
+    yielded dependencies list.
+
+    Yields: (path, dependencies)
+        path - Tuple of tasks to, path[-1] is current task being walked.
+        dependencies - list of dependencies.
+    """
+
+    to_walk = [([], t)]
+
+    while to_walk:
+        src_path, cur_t = to_walk.pop(0)
+
+        cur_path = src_path + [cur_t]
+        cur_dependencies = list(cur_t.dependencies())
+
+        yield cur_path, cur_dependencies
+
+        # Ignore modifications to path by resetting cur_path
+        cur_path = src_path + [cur_t]
+        to_walk.extend( (cur_path, d) for d in cur_dependencies )
 
 def value(elem):
     '''

@@ -30,7 +30,8 @@ import re
 import logging
 logger = logging.getLogger(__name__)
 
-from .task import Task, Tasklet
+from . import backends
+from .task import Task, Tasklet, walk_dependencies
 from . import task
 from .io import print_task_summary_table, render_task_summary_table
 from .subcommands.status import status
@@ -69,8 +70,6 @@ def invalidate(store, options):
         module qualified) name of function to invalidate
     '''
     invalid_name = options.invalid_name
-    tasks = task.alltasks
-    cache = {}
     if re.match( r'/.*?/', invalid_name):
         # Looks like a regular expression
         invalidate_re = re.compile( invalid_name.strip('/') )
@@ -80,32 +79,47 @@ def invalidate(store, options):
     else:
         # A bare function name perhaps?
         invalidate_re = re.compile(r'\.' + invalid_name )
-    def isinvalid(t):
-        if isinstance(t, Tasklet):
-            return isinvalid(t.base)
-        h = t.hash()
-        if h in cache:
-            return cache[h]
-        if re.search( invalidate_re, t.name ):
-            cache[h] = True
-            return True
-        for dep in t.dependencies():
-            if isinvalid(dep):
-                cache[h] = True
-                return True
-        cache[h] = False
-        return False
 
-    invalid = list(filter(isinvalid, tasks))
-    if not invalid:
-        options.print_out('No results invalidated.')
+    logger.info("Created invalidate_re: %r", invalidate_re.pattern)
+
+    invalid_tasks = {}
+    tasks = task.alltasks
+
+    # Scan and mark tasks as invalidated
+    for t in tasks:
+        if re.search( invalidate_re, t.name ):
+            invalid_tasks[t.hash()] = t
+
+    if not invalid_tasks:
+        options.print_out('No tasks matched invalid pattern.')
         return
+
+    valid_tasks = {}
+    def scan_task_dependencies(t):
+        for _, deps in walk_dependencies(t):
+            for i in reversed(range(len(deps))):
+                if deps[i].hash() in invalid_tasks:
+                    invalid_tasks[t.hash()] = t
+                    return
+                elif deps[i].hash() in valid_tasks:
+                    deps.pop(i)
+
+        valid_tasks[t.hash()] = True
+
+    for t in tasks:
+        scan_task_dependencies(t)
+
     task_counts = defaultdict(int)
-    for t in invalid:
-        if store.remove(t.hash()):
-            task_counts[t.name] += 1
+    for t in invalid_tasks.values():
+        if not options.dry_run:
+            if store.remove(t.hash()):
+                task_counts[t.name] += 1
+        else:
+            if store.can_load(t.hash()):
+                task_counts[t.name] += 1
+
     if sum(task_counts.values()) == 0:
-        options.print_out('Tasks invalidated, but no results removed')
+        options.print_out('Tasks matched invalid pattern, but no results present.')
     else:
         print_task_summary_table(options, [("Invalidated", task_counts)])
 
@@ -447,8 +461,6 @@ def set_jugdir(jugdir):
     -------
     store : a jug backend
     '''
-    from .task import Task
-    from . import backends
     store = backends.select(jugdir)
     Task.store = store
     return store
