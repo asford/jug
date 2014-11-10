@@ -127,9 +127,10 @@ def _sigterm(_,__):
     sys.exit(1)
 
 class Executor(object):
-    def __init__(self, tasks, execute_wait_cycle_time_secs, aggressive_unload, debug_mode, pdb, execute_keep_going):
+    def __init__(self, store, tasks, execute_wait_cycle_time_secs, aggressive_unload, debug_mode, pdb, execute_keep_going):
         logger.info("Beginning execution: <%s tasks>", len(tasks))
 
+        self.store = store
         self.tasks = tasks
 
         self.execute_wait_cycle_time_secs = execute_wait_cycle_time_secs
@@ -153,10 +154,11 @@ class Executor(object):
             tasks_locked   = []
             tasks_executed = []
 
+            m_store = backends.memoize_store(self.store, list_base=True)
             for t in tasks_current:
-                if t.can_load():
+                if t.can_load(m_store):
                     tasks_finished.append(t)
-                elif t.can_run():
+                elif t.can_run(m_store):
                     tasks_ready.append(t)
                 else:
                     tasks_waiting.append(t)
@@ -288,6 +290,7 @@ def execute(options):
 
         has_barrier = jugspace.get('__jug__hasbarrier__', False)
         executor = Executor(
+                store,
                 tasks,
                 options.execute_wait_cycle_time_secs,
                 options.aggressive_unload,

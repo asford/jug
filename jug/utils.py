@@ -137,15 +137,15 @@ class LazyTaskContainer(TaskBase):
                 elif isinstance(dep, dict):
                     queue.append(iter(dep.values()))
 
-    def can_run(self):
+    def can_run(self, store = None):
         for dep in self.dependencies():
-            if not hasattr(dep, '_result') and not dep.can_load():
+            if not hasattr(dep, '_result') and not dep.can_load(store):
                 return False
         return True
 
-    def can_load(self):
+    def can_load(self, store=None):
         for dep in self.dependencies():
-            if not dep.can_load():
+            if not dep.can_load(store):
                 return False
         return True
 

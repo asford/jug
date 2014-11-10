@@ -74,8 +74,12 @@ class TaskBase(TaskletMixin):
         raise NotImplementedError("TaskBase.can_load")
 
     @abstractmethod
-    def can_run(self):
+    def can_run(self, store=None):
         """Check if task can be run.
+
+        Parameters
+        ----------
+        store : Store, optional
 
         Returns
         -------
@@ -203,14 +207,14 @@ class Task(TaskBase):
     def value(self):
         return self.result
 
-    def can_run(self):
+    def can_run(self, store=None):
         '''
         bool = task.can_run()
 
         Returns true if all the dependencies have their results available.
         '''
         for dep in self.dependencies():
-            if not hasattr(dep, '_result') and not dep.can_load():
+            if not hasattr(dep, '_result') and not dep.can_load(store):
                 return False
         return True
 
@@ -430,11 +434,11 @@ class Tasklet(TaskBase):
     def value(self):
         return self.f(value(self.base))
 
-    def can_load(self):
-        return self.base.can_load()
+    def can_load(self, store=None):
+        return self.base.can_load(store)
 
-    def can_run(self):
-        return self.base.can_run()
+    def can_run(self, store=None):
+        return self.base.can_run(store)
 
     def base_hash(self):
         """Return hash of base object."""
