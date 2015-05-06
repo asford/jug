@@ -224,13 +224,28 @@ class file_store(base_store):
             number of removed files
         '''
         active = frozenset(self._getfname(t.hash()) for t in active)
+
         removed = 0
-        for dir,_,fs in os.walk(self.jugdir):
-            for f in fs:
-                f = path.join(dir, f)
-                if f not in active:
-                    os.unlink(f)
+        for target_dir, subdirs, fs in os.walk(self.jugdir):
+            if target_dir == self.jugdir:
+                # Remove tempfiles from walk
+                del subdirs[subdirs.index("tempfiles")]
+                del subdirs[subdirs.index("locks")]
+
+            fs = [os.path.join(target_dir, f) for f in fs]
+
+            active_files = [f for f in fs if f in active]
+            inactive_files = [f for f in fs if f not in active]
+
+            for inactive in inactive_files:
+                logger.debug("Removing inactive file: %s", inactive)
+                os.unlink(inactive)
                     removed += 1
+
+            if len(subdirs) == 0 and len(active_files) == 0:
+                logger.debug("Removing empty dir: %s", target_dir)
+                os.rmdir(target_dir)
+
         return removed
 
     def remove_locks(self):
