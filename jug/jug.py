@@ -75,7 +75,7 @@ def invalidate(store, options):
         invalidate_re = re.compile( invalid_name.strip('/') )
     elif '.' in invalid_name:
         # Looks like a full task name
-        invalidate_re = invalid_name.replace('.','\\.' )
+        invalidate_re = re.compile(invalid_name.replace('.','\\.' ))
     else:
         # A bare function name perhaps?
         invalidate_re = re.compile(r'\.' + invalid_name )
@@ -207,7 +207,7 @@ class Executor(object):
             if tasks_current and not tasks_executed:
                 if wait_cycles > 0:
                     wait_cycles -= 1
-                    logger.info("Waiting %s seconds for open task.", self.execute_wait_cycle_time_secs)
+                    logger.info("Waiting %s seconds for open task. wait_cycle: %s/%s", self.execute_wait_cycle_time_secs, wait_cycles, execute_nr_wait_cycles)
                     sleep(int(self.execute_wait_cycle_time_secs))
                 else:
                     logger.info("Finished wait cycles without open task.")
@@ -225,37 +225,19 @@ class Executor(object):
                 task.unload_recursive()
             return True
 
-        except Exception as e:
+        except (Exception, KeyboardInterrupt) as e:
             if self.pdb:
-                import sys
-                _,_, tb = sys.exc_info()
-
-                # The code below is a complex attempt to load IPython
-                # debugger which works with multiple versions of IPython.
-                #
-                # Unfortunately, their API kept changing prior to the 1.0.
+                exc_info = sys.exc_info()
                 try:
-                    import IPython
-
-                    try:
-                        import IPython.core.debugger
-                        debugger = IPython.core.debugger.Pdb()
-                    except ImportError:
-                        #Fallback to older version of IPython API
-                        import IPython.ipapi
-                        import IPython.Debugger
-                        ipshell = IPython.Shell.IPShell(argv=[''])
-                        ip = IPython.ipapi.get()
-                        debugger=IPython.Debugger.Pdb(ip.options.colors)
+                    from IPython.core import ultratb
+                    ultratb.FormattedTB(call_pdb=1)( exc_info )
                 except ImportError:
                     #Fallback to standard debugger
+                    _, _, tb = exc_info
                     import pdb
-                    debugger = pdb.Pdb()
-
-                debugger.reset()
-                debugger.interaction(None, tb)
+                    pdb.post_mortem(tb)
             else:
-                logger.critical('Exception while running %s: %s' % (task.name,e))
+                logger.critical('Exception while running %s: %s', task.name, e)
 
             if self.execute_keep_going:
                 return False
@@ -404,6 +386,8 @@ def init(jugfile="jugfile", jugdir=None, on_error='exit', store=None):
     import imp
     from .options import resolve_jugdir
     assert on_error in ('exit', 'propagate'), 'jug.init: on_error option is not valid.'
+
+    logger.debug("init(jugfile=%s, jugdir=%r, on_error=%s, store=%s)", jugfile, jugdir, on_error, store)
 
     if jugdir is None:
         jugdir = resolve_jugdir(jugfile)

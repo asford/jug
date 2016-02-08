@@ -25,7 +25,10 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 import jug
-from ..task import recursive_dependencies
+import logging
+logger = logging.getLogger(__name__)
+
+from ..task import recursive_dependencies, walk_dependencies
 from .. import task
 from .. import backends
 from ..task import Task, Tasklet
@@ -90,12 +93,18 @@ def load_jugfile(options):
     h2idx = {}
     ht = []
     deps = {}
-    for i,t in enumerate(task.alltasks):
-        deps[i] = [h2idx[d.hash() if not isinstance(d,Tasklet) else d.base_hash()]
-                        for d in t.dependencies()]
-        hash = t.hash()
-        ht.append( (i, t.display_name, hash, unknown) )
-        h2idx[hash] = i
+
+    h2idx = { t.hash() : i for i, t in enumerate(task.alltasks) }
+
+    for t_i,t in enumerate(task.alltasks):
+        deps[t_i] = []
+        for _, rdeps in walk_dependencies(t):
+            for i in range(len(rdeps) - 1, -1, -1):
+                if isinstance( rdeps[i], Task ):
+                    deps[i].append( h2idx[rdeps[i].hash()] )
+                    rdeps.pop(i)
+
+        ht.append( (t_i, t.display_name, t.hash(), unknown) )
 
     rdeps = defaultdict(list)
     for k,v in deps.items():
@@ -112,21 +121,21 @@ def update_status(store, ht, deps, rdeps):
 
     store = memoize_store(store, list_base=True)
     dirty = {}
-    for i, name, hash,status in ht:
+    for i, name, t_hash, t_status in ht:
         nstatus = None
-        if status == finished or store.can_load(hash):
+        if t_status == finished or store.can_load(t_hash):
             tasks_finished[name] += 1
             nstatus = finished
         else:
             can_run = True
-            if status != ready:
+            if t_status != ready:
                 for dep in deps.get(i, []):
                     _,_,dhash,dstatus = ht[dep]
                     if dstatus != finished and not store.can_load(dhash):
                         can_run = False
                         break
             if can_run:
-                lock = store.getlock(hash)
+                lock = store.getlock(t_hash)
                 if lock.is_locked():
                     tasks_running[name] += 1
                     nstatus = running
@@ -137,7 +146,7 @@ def update_status(store, ht, deps, rdeps):
                 tasks_waiting[name] += 1
                 nstatus = waiting
         assert nstatus is not None, 'update_status: nstatus not assigned'
-        if status != nstatus:
+        if t_status != nstatus:
             dirty[i] = nstatus
     return tasks_waiting, tasks_ready, tasks_running, tasks_finished, dirty
 
@@ -158,13 +167,15 @@ def _clear_cache(options):
         pass
 
 def _status_cached(options):
+    logger.debug("Executing _status_cached.")
     create, update = list(range(2))
     try:
         with _open_connection(options) as connection:
             ht, deps, rdeps = retrieve_sqlite3(connection)
         store = backends.select(options.jugdir)
         mode = update
-    except:
+    except Exception:
+        logger.debug("Exception opening status cache, loading jugfile.", exc_info=True)
         store, ht, deps, rdeps = load_jugfile(options)
         mode = create
 
@@ -181,8 +192,8 @@ def _status_cached(options):
             create_sqlite3(connection, ht, deps, rdeps)
     return sum(tf.values())
 
-
 def _status_nocache(options):
+    logger.debug("Executing _status_nocache.")
     store,_ = jug.init(options.jugfile, options.jugdir)
     Task.store = memoize_store(store, list_base=True)
 
@@ -216,15 +227,14 @@ def status(options):
 
     Returns
     -------
-    tasks_finished : int 
+    tasks_finished : int
         Count of finsihed tasks.
     '''
     if options.status_mode == 'cached':
         try:
             import sqlite3
         except ImportError:
-            from sys import stderr
-            stderr.write('Cached status relies on sqlite3. Falling back to non-cached version')
+            logger.warning('Cached status relies on sqlite3. Falling back to non-cached version')
             options.status_mode = 'no-cache'
             return status(options)
         if options.status_cache_clear:
