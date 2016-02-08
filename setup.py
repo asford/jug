@@ -32,6 +32,14 @@ setuptools not found. Please install it.
 On linux, the package is often called python-setuptools\n''')
     exit(1)
 
+try:
+    #Workaround http://bugs.python.org/issue15881
+    #Fixes error in test execution
+    import multiprocessing
+except ImportError:
+    pass
+
+
 exec(compile(open('jug/jug_version.py').read(), 'jug/jug_version.py', 'exec'))
 long_description = open('README.rst').read()
 
