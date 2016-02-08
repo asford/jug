@@ -1,10 +1,15 @@
+from os import path
+
+import six
+import pickle
+
+from nose.tools import with_setup, assert_raises
+from nose import SkipTest
+
 import jug.backends.redis_store
 import jug.backends.file_store
 import jug.backends.dict_store
 from jug.backends.redis_store import redis
-from nose.tools import with_setup
-from nose import SkipTest
-import six
 
 _storedir = 'jugtests'
 def _remove_file_store():
@@ -75,18 +80,52 @@ def test_stores():
             f.teardown = tear
             yield f, s()
 
+
 @with_setup(teardown=_remove_file_store)
-def test_numpy_array():
+def test_numpy_store():
+
     try:
         import numpy as np
     except ImportError:
         raise SkipTest()
+
     store = jug.backends.file_store.file_store(_storedir)
-    arr = np.arange(100) % 17
-    arr = arr.reshape((10,10))
+
     key = 'mykey'
+    arr = (np.arange(100) % 17).reshape((10, 10))
+
     store.dump(arr, key)
     arr2 = store.load(key)
+
     assert np.all(arr2 == arr)
+
     store.remove(key)
     store.close()
+
+@with_setup(teardown=_remove_file_store)
+def test_h5py_store():
+    try:
+        import h5py
+        import numpy
+    except ImportError:
+        raise SkipTest()
+
+    store = jug.backends.file_store.file_store(_storedir)
+    store.create()
+
+    key = 'mykey'
+
+    db = h5py.File( path.join( store.tempdir(), "temp_db" ), "w")
+    db.create_dataset("test_array", data=numpy.arange(100))
+
+    store.dump( db, key)
+    result_db = store.load(key)
+
+    assert result_db.filename == store._getfname(key)
+    assert result_db.filename != db.filename
+    assert result_db.mode == 'r'
+
+    assert numpy.all( db["test_array"][:] == result_db["test_array"][:])
+
+    invalid_store = jug.backends.dict_store.dict_store()
+    assert_raises(pickle.PicklingError, invalid_store.dump, db, key)
