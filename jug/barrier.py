@@ -68,9 +68,9 @@ def bvalue(t):
     barrier : function
         Checks that **all** tasks have results available.
     '''
-    from .task import value
-    try:
-        return value(t)
-    except:
-        raise BarrierError
+    from .task import value, can_load
 
+    if can_load(t):
+        return value(t)
+    else:
+        raise BarrierError
