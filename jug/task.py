@@ -74,6 +74,17 @@ class TaskBase(TaskletMixin):
         raise NotImplementedError("TaskBase.can_load")
 
     @abstractmethod
+    def is_loaded(self):
+        """Check if task result is currently loaded.
+
+        Returns
+        -------
+        is__loaded : bool
+        """
+        raise NotImplementedError("TaskBase.is_loaded")
+
+
+    @abstractmethod
     def can_run(self, store=None):
         """Check if task can be run.
 
@@ -144,7 +155,6 @@ class Task(TaskBase):
 
     '''
     store = None
-    # __slots__ = ('name', 'f', 'args', 'kwargs', '_hash','_lock')
     def __init__(self, f, *args, **kwargs):
         if getattr(f, 'func_name', '') == '<lambda>':
             raise ValueError('''jug.Task does not work with lambda functions.''')
@@ -183,19 +193,22 @@ class Task(TaskBase):
             (default: True)
         '''
         assert self.can_run()
-        if debug_mode: self._check_hash()
-        self._result = self._execute()
-        if save:
-            name = self.hash()
-            self.store.dump(self._result, name)
-        if debug_mode: self._check_hash()
-        return self._result
+        assert save, "task.run(save=False,...) not supported."
+
+        if debug_mode:
+            self._check_hash()
+
+        name = self.hash()
+        result = self._execute()
+        self.store.dump(result, name)
+
+        if debug_mode:
+            self._check_hash()
 
     def _execute(self):
         args = [value(dep) for dep in self.args]
         kwargs = dict((key,value(dep)) for key,dep in self.kwargs.items())
         return self.f(*args,**kwargs)
-
 
     @property
     def result(self):
@@ -440,6 +453,9 @@ class Tasklet(TaskBase):
     def can_run(self, store=None):
         return self.base.can_run(store)
 
+    def is_loaded(self):
+        return self.base.is_loaded()
+
     def base_hash(self):
         """Return hash of base object."""
         if isinstance(self.base, Tasklet):
@@ -531,12 +547,36 @@ def walk_dependencies(t):
         cur_path = src_path + [cur_t]
         to_walk.extend( (cur_path, d) for d in cur_dependencies )
 
+def tasks_for_value(*args, **kwargs):
+    """Walk elem, yielding all contained tasks.
+
+    Walks elem recursively, handling lists, dicts and tuples, yielding
+    all tasks contained within elem. Can be used to extract all tasks needed
+    to successfully resolve elem's value.
+
+    Examples:
+        >>> list(tasks_in_value([1, 2, 3]))
+        []
+        >>> list(tasks_in_value([1, 2, Task(...)]))
+        [Task(...)]
+    """
+    queue = [args, kwargs.values()]
+    while queue:
+        elems = queue.pop()
+        for e in elems:
+            if isinstance(e, TaskBase):
+                yield e
+            elif isinstance(e, (list, tuple)):
+                queue.append(e)
+            elif isinstance(e, dict):
+                queue.append(iter(e.values()))
+
 def value(elem):
     '''
     value = value(obj)
 
     Loads a task object recursively. This correcly handles lists,
-    dictonaries and eny other type handled by the tasks themselves.
+    dictonaries and any other type handled by the tasks themselves.
 
     Parameters
     ----------
@@ -560,6 +600,35 @@ def value(elem):
         return elem.__jug_value__()
     else:
         return elem
+
+def can_load(elem):
+    '''
+    value = value(obj)
+
+    Check if a task object can be loaded recursively. This correcly handles lists,
+    dictonaries and any other type handled by the tasks themselves.
+
+    Parameters
+    ----------
+    obj : object
+        Anything that can be pickled or a Task
+
+    Returns
+    -------
+    can_load: bool
+        True if the object tree can be loaded, false otherwise.
+    '''
+
+    if isinstance(elem, TaskBase):
+        return elem.can_load()
+    elif type(elem) == list:
+        return all(can_load(e) for e in elem)
+    elif type(elem) == tuple:
+        return all(can_load(e) for e in elem)
+    elif type(elem) == dict:
+        return all(can_load(e) for e in elem.values())
+    else:
+        return True
 
 def CachedFunction(f,*args,**kwargs):
     '''
@@ -709,4 +778,3 @@ def describe(t):
     elif isinstance(t, tuple):
         return tuple(list(t))
     return t
-
