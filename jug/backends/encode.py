@@ -20,6 +20,10 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
+from abc import ABCMeta, abstractmethod, abstractproperty
+
+import logging
+logger = logging.getLogger(__name__)
 
 from six.moves import cPickle as pickle
 from six import BytesIO
@@ -28,15 +32,80 @@ import zlib
 
 __all__ = ['encode', 'decode', 'encode_to', 'decode_from']
 
-def encode(object):
-    '''
-    s = encode(object)
+class BaseEncoder(object):
+    __metaclass__ = ABCMeta
 
-    Return a string (byte-array) representation of object.
+    @abstractproperty
+    def prefix(self):
+        raise NotImplementedError("prefix")
+
+    @abstractmethod
+    def decode_from(self, stream):
+        """Decode object from stream."""
+        raise NotImplementedError("decode_from")
+
+    @abstractmethod
+    def can_encode(self, target):
+        """Return True if can encode target, else False."""
+        raise NotImplementedError("can_encode")
+
+    @abstractmethod
+    def write(self, target, stream):
+        """Encode target object to stream."""
+        raise NotImplementedError("write")
+
+class NDArrayEncoder(BaseEncoder):
+    prefix = six.b('N')
+
+    @classmethod
+    def can_encode(cls, target):
+        return type(target) == numpy.ndarray
+
+    @classmethod
+    def write(cls, target, stream):
+        assert isinstance( target, numpy.ndarray )
+
+        stream.write(cls.prefix)
+        numpy.save(stream, target)
+
+    @classmethod
+    def decode_from(cls, stream):
+        return numpy.load(stream)
+
+class PickleEncoder(BaseEncoder):
+    prefix = six.b('P')
+
+    @classmethod
+    def can_encode(cls, obj):
+        return True
+
+    @classmethod
+    def write(cls, target, stream):
+        stream.write(cls.prefix)
+        pickle.dump( target, stream, 2 )
+
+    @classmethod
+    def decode_from(cls, stream):
+        return pickle.load(stream)
+
+encoder_set = []
+try:
+    import numpy
+    encoder_set.append( NDArrayEncoder() )
+except ImportError:
+    pass
+
+encoder_set.append(PickleEncoder())
+
+def encode(obj):
+    '''
+    s = encode(obj)
+
+    Return a string (byte-array) representation of obj.
 
     Parameters
     ----------
-      object : Any thing that is pickle()able
+      obj : Any thing that is pickle()able
 
     Returns
     -------
@@ -47,34 +116,33 @@ def encode(object):
       `decode`
     '''
     output = BytesIO()
-    encode_to(object, output)
+    encode_to(obj, output)
     return output.getvalue()
 
-def encode_to(object, stream):
+def encode_to(obj, stream):
     '''
-    encode_to(object, stream)
+    encode_to(obj, stream)
 
-    Encodes the object into the stream ``stream``
+    Encodes the obj into the stream ``stream``
 
     Parameters
     ----------
-    object : Any object
+    obj : Any object
     stream : file-like object
     '''
-    if object is None:
+    if obj is None:
+        logger.debug("encode_to obj: None")
         return
-    prefix = six.b('P')
-    write = pickle.dump
-    try:
-        import numpy as np
-        if type(object) == np.ndarray:
-            prefix = six.b('N')
-            write = (lambda f,a: np.save(a,f))
-    except ImportError:
-        pass
+
     stream = compress_stream(stream)
-    stream.write(prefix)
-    write(object, stream)
+    for e in encoder_set:
+        if e.can_encode(obj):
+            logger.debug("Resolved encoder: %s obj: %s", e, obj)
+            e.write(obj, stream)
+            break
+    else:
+        raise ValueError("No valid encoder for obj.", obj)
+
     stream.flush()
 
 class compress_stream(object):
@@ -132,7 +200,6 @@ class decompress_stream(object):
             self.queue = self.lastread[skip:]
 
     def readline(self):
-        import six
         qi = self.queue.find(six.b('\n'))
         if qi >= 0:
             qi += 1
@@ -187,11 +254,12 @@ def decode_from(stream):
     stream = decompress_stream(stream)
     prefix = stream.read(1)
     if not prefix:
+        logger.debug("decode_from without prefix. return None")
         return None
-    elif prefix == six.b('P'):
-        return pickle.load(stream)
-    elif prefix == six.b('N'):
-        import numpy as np
-        return np.load(stream)
+
+    for e in encoder_set:
+        if prefix == e.prefix:
+            logger.debug("Resolved decoder: %s", e)
+            return e.decode_from(stream)
     else:
         raise IOError("jug.backend.decode_from: unknown prefix '%s'" % prefix)
