@@ -22,14 +22,17 @@
 
 
 import os
+import contextlib
 
-from .task import Task, Tasklet, TaskBase, TaskGenerator, value
+from .task import Task, Tasklet, TaskBase, TaskGenerator, value, tasks_for_value
 from .hash import new_hash_object, hash_update
+import contextlib
 
 __all__ = [
     'timed_path',
     'identity',
     'CustomHash',
+    'lazy_load'
     ]
 
 def _return_first(one, two):
@@ -116,6 +119,9 @@ class CustomHash(object):
         return value(self.obj)
 
 def lazy_load(values):
+    """Wrap contents in Task-like object which returns included tasks as
+    dependencies, but does not load the subtasks before execution."""
+
     return LazyTaskContainer(values)
 
 class LazyTaskContainer(TaskBase):
@@ -126,28 +132,22 @@ class LazyTaskContainer(TaskBase):
         return self.target
 
     def dependencies(self):
-        queue = [self.target]
-        while queue:
-            deps = queue.pop()
-            for dep in deps:
-                if isinstance(dep, TaskBase):
-                    yield dep
-                elif isinstance(dep, (list, tuple)):
-                    queue.append(dep)
-                elif isinstance(dep, dict):
-                    queue.append(iter(dep.values()))
+        return tasks_for_value(self.target)
 
     def can_run(self, store = None):
-        for dep in self.dependencies():
-            if not hasattr(dep, '_result') and not dep.can_load(store):
+        for dep in tasks_for_value(self.target):
+            if not dep.is_loaded() and not dep.can_load(store):
                 return False
         return True
 
     def can_load(self, store=None):
-        for dep in self.dependencies():
+        for dep in tasks_for_value(self.target):
             if not dep.can_load(store):
                 return False
         return True
+
+    def is_loaded(self):
+        return all( t.is_loaded() for t in tasks_for_value(self.target) )
 
     def unload(self):
         pass
@@ -169,3 +169,17 @@ class LazyTaskContainer(TaskBase):
         subsequent calls.
         """
         return self._compute_set_hash()
+
+@contextlib.contextmanager
+def lazy_value(task_or_value):
+    """Context manager managing loading result from jug task.
+
+    Manager load values from jug tasks or passes through values. Task is
+    unloaded on close if it was not already loaded.
+    """
+    to_unload = [t for t in tasks_for_value(task_or_value) if not t.is_loaded()]
+
+    yield value(task_or_value)
+
+    for t in to_unload:
+        t.unload()
