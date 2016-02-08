@@ -66,7 +66,6 @@ class base_store(object):
         Iterates over all the keys in the store
         '''
 
-
     @abstractmethod
     def can_load(self, name):
         '''
@@ -138,7 +137,6 @@ class base_store(object):
             number of removed files
         '''
 
-
     @abstractmethod
     def remove_locks(self):
         '''
@@ -151,7 +149,6 @@ class base_store(object):
         removed : int
             Number of locks removed
         '''
-
 
     @abstractmethod
     def getlock(self, name):
@@ -198,7 +195,6 @@ class base_store(object):
 
     def metadata(self, t):
         return None
-
 
 class base_lock(object):
     __metaclass__ = ABCMeta

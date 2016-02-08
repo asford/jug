@@ -23,8 +23,8 @@
 import logging
 logger = logging.getLogger(__name__)
 
-from . import redis_store
-from . import file_store
+from .redis_store import redis_store
+from .file_store import file_store
 from .dict_store import dict_store
 
 def select(jugdir):
@@ -47,10 +47,10 @@ def select(jugdir):
     if type(jugdir) != str:
         return jugdir
     if jugdir.startswith('redis:'):
-       return redis_store.redis_store(jugdir)
+        return redis_store(jugdir)
     if jugdir == 'dict_store':
         return dict_store()
     if jugdir.startswith('dict_store:'):
         return dict_store(jugdir[len('dict_store:'):])
-    return file_store.file_store(jugdir)
+    return file_store(jugdir)
 

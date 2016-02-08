@@ -42,12 +42,12 @@ def _lockname(name):
 class dict_store(base_store):
     """ In-memory dict-based store. Does not support multiple processes, primarily designed for testing.
 
-    
+
     Attrs
     -----
     backend :
         Filename to load data from on init and save data to on close
-    counts : dict(int) 
+    counts : dict(int)
         Method access counters
 
     """
@@ -116,14 +116,11 @@ class dict_store(base_store):
 
         Implement 'cleanup' command
         '''
+        active = set(_resultname(t.hash()) for t in active)
         existing = set(self.store.keys())
-        for act in active:
-            try:
-                existing.remove(_resultname(act))
-            except KeyError:
-                pass
-        for superflous in existing:
-            del self.store[superflous]
+
+        for k in existing.difference( active ):
+            del self.store[k]
 
     def remove_locks(self):
         '''
