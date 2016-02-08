@@ -2,7 +2,7 @@ from .task_reset import task_reset
 
 def simple_execute(tasks = None, options = None):
     from jug.jug import Executor
-    from jug.task import alltasks
+    from jug.task import alltasks, Task
     from jug.options import default_options
 
     if options is None:
@@ -12,6 +12,7 @@ def simple_execute(tasks = None, options = None):
         tasks = list(alltasks)
 
     executor = Executor(
+            Task.store,
             tasks,
             options.execute_wait_cycle_time_secs,
             options.aggressive_unload,

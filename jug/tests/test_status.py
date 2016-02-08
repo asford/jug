@@ -6,8 +6,10 @@ import jug
 
 @task_reset
 def test_nocache():
-    store, space = jug.jug.init('jug/tests/jugfiles/simple.py', 'dict_store')
+    store, _ = jug.jug.init('jug/tests/jugfiles/simple.py', 'dict_store')
     simple_execute()
+    while jug.task.alltasks:
+        jug.task.alltasks.pop()
 
     options = default_options.copy()
     options.jugdir = store
@@ -17,7 +19,9 @@ def test_nocache():
 
 @task_reset
 def test_cache():
-    store, space = jug.jug.init('jug/tests/jugfiles/simple.py', 'dict_store')
+    store, _ = jug.jug.init('jug/tests/jugfiles/simple.py', 'dict_store')
+    while jug.task.alltasks:
+        jug.task.alltasks.pop()
 
     options = default_options.copy()
     options.jugdir = store

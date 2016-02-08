@@ -3,5 +3,6 @@ from .task_reset import task_reset
 
 @task_reset
 def test_utils_identity():
-    identity(2).run() == 2
-
+    t = identity(2)
+    t.run()
+    assert t.value() == 2

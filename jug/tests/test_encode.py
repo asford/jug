@@ -2,6 +2,7 @@ from six import BytesIO
 import six
 from jug.backends.encode import compress_stream, decompress_stream, encode, decode
 import numpy as np
+
 def test_encode():
     assert decode(encode(None)) is None
     assert decode(encode([])) == []
