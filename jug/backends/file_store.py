@@ -24,17 +24,21 @@
 file_store : file-system based data store & locks.
 '''
 
-
 import os
 from os import path, mkdir, fdopen
 from os.path import dirname, exists
+
 import errno
 import tempfile
 import shutil
 import six
 
+import logging
+logger = logging.getLogger(__name__)
+
 from .base import base_store
-from jug.backends.encode import encode_to, decode_from
+from .encode import encode_to, decode_from
+from .file_manager import file_managers
 
 def create_directories(dname):
     '''
@@ -51,7 +55,6 @@ def create_directories(dname):
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-
 
 class file_store(base_store):
     def __init__(self, dname):
@@ -85,37 +88,27 @@ class file_store(base_store):
         name = six.text_type(name)
         return path.join(self.jugdir, name[:2], name[2:])
 
-
-    def dump(self, object, name):
+    def dump(self, obj, name):
         '''
-        store.dump(object, name)
+        store.dump(obj, name)
 
-        Performs the same as
-
-        pickle.dump(object, open(name,'w'))
-
-        but does it in a way that is guaranteed to be atomic even over NFS.
+        Dump obj to filesystem via intermediate temporary file.
         '''
         name = self._getfname(name)
         create_directories(dirname(name))
         self._maybe_create()
         fd, fname = tempfile.mkstemp('.jugtmp', 'jugtemp', self.tempdir())
         output = os.fdopen(fd, 'wb')
-        try:
-            import numpy as np
-            if type(object) == np.ndarray:
-                np.lib.format.write_array(output, object)
-                output.close()
-                os.rename(fname, name)
-                return
-        except ImportError:
-            pass
-        except OSError:
-            pass
-        except ValueError:
-            pass
 
-        encode_to(object, output)
+        for manager in file_managers:
+            if manager.can_dump( obj ):
+                logger.debug("Resolved file_manager: %s obj: %s", manager, obj)
+                manager.dump( obj, output )
+                break
+        else:
+            logger.debug("Fallback to encode_to obj: %s", obj)
+            encode_to(obj, output)
+
         output.close()
 
         # Rename is atomic even over NFS.
@@ -182,15 +175,15 @@ class file_store(base_store):
             The object that was saved under ``name``
         '''
         fname = self._getfname(name)
-        input = open(fname, 'rb')
-        try:
-            import numpy as np
-            return np.lib.format.read_array(input)
-        except ValueError:
-            input.seek(0)
-        except ImportError:
-            pass
-        return decode_from(input)
+        infile = open(fname, 'rb')
+
+        for manager in file_managers:
+            if manager.can_load( infile ):
+                logger.debug("Resolved file_manager: %s name: %s", manager, name)
+                return manager.load( infile )
+        else:
+            logger.debug("Fallback to decode_from name: %s", name)
+            return decode_from( infile )
 
     def remove(self, name):
         '''
@@ -240,7 +233,7 @@ class file_store(base_store):
             for inactive in inactive_files:
                 logger.debug("Removing inactive file: %s", inactive)
                 os.unlink(inactive)
-                    removed += 1
+                removed += 1
 
             if len(subdirs) == 0 and len(active_files) == 0:
                 logger.debug("Removing empty dir: %s", target_dir)
@@ -335,7 +328,6 @@ class file_store(base_store):
         '''
         shutil.rmtree(jugdir)
 
-
 class file_based_lock(object):
     '''
     file_based_lock: File-system based locks
@@ -398,4 +390,3 @@ class file_based_lock(object):
         acquire the lock can you avoid race-conditions. See the get() function.
         '''
         return path.exists(self.fullname)
-
