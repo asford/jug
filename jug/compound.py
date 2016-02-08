@@ -22,15 +22,7 @@
 
 
 from .task import Task
-
-def compound_task_execute(x, h):
-    '''
-    compound_task_execute
-
-    This is an internal function. Do **not** use directly.
-    '''
-    Task.store.dump(x, h)
-    return x
+from .barrier import BarrierError
 
 def CompoundTask(f, *args, **kwargs):
     '''
@@ -70,14 +62,23 @@ def CompoundTask(f, *args, **kwargs):
     task = Task(f, *args, **kwargs)
     if task.can_load():
         return task
-    del alltasks[alltasks.index(task)]
-    h = task.hash()
-    del task
-    inner = f(*args, **kwargs)
-    compound = Task(compound_task_execute, inner, h)
-    compound.__jug_hash__ = lambda : h
-    compound._check_hash = lambda : None
-    return compound
+
+    ntask = alltasks.pop()
+    assert ntask == task
+
+    # Rewrite task as "thunk" surrounding inner task values.
+    inner_tasks = f(*args, **kwargs)
+
+    original_hash = task.hash()
+
+    task.__jug_hash__ = lambda: original_hash
+    task._check_hash = lambda: None
+    task.f = lambda inner_task_values: inner_task_values
+    task.args = (inner_tasks,)
+
+    alltasks.append(task)
+
+    return task
 
 def CompoundTaskGenerator(f):
     '''
