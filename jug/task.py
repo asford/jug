@@ -199,8 +199,8 @@ class Task(TaskBase):
             self._check_hash()
 
         name = self.hash()
-        result = self._execute()
-        self.store.dump(result, name)
+        self._result = self._execute()
+        self.store.dump(self._result, name)
 
         if debug_mode:
             self._check_hash()
