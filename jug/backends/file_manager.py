@@ -78,8 +78,6 @@ class H5PyFileManager(BaseFileManager):
         with open(obj.filename, "r") as infile:
             shutil.copyfileobj(infile, file)
 
-        obj.close()
-
 file_managers = []
 
 try:
