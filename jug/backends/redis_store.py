@@ -42,15 +42,9 @@ except ImportError:
     redis = None
     redis_functional = False
 
-def _resultname(name):
-    return 'result:{0}'.format(name).encode('utf-8')
-
-def _lockname(name):
-    return 'lock:{0}'.format(name).encode('utf-8')
-
 _LOCKED = 1
 
-_redis_urlpat = re.compile(r'redis://(?P<host>[A-Za-z0-9\.\-]+)(\:(?P<port>[0-9]+))?/')
+_redis_urlpat = re.compile(r'redis://(?P<host>[A-Za-z0-9\.\-]+)(\:(?P<port>[0-9]+))?/?(?P<prefix>.+)?')
 
 
 class redis_store(base_store):
@@ -59,18 +53,34 @@ class redis_store(base_store):
         '''
         if redis is None:
             raise IOError('jug.redis_store: redis module is not found!')
-        redis_params = {}
+        self.redis_params = {}
         match = _redis_urlpat.match(url)
-        if match:
-            redis_params = match.groupdict()
-            if redis_params['port'] == None:
-                del redis_params['port']
-            else:
-                redis_params['port'] = int( redis_params['port'] )
-        logger.info('connecting to %s' % redis_params)
+        params = match.groupdict()
+        logger.info('Parsed %r params: %s' % (url, params))
+        
+        if params.get("host", None):
+            self.redis_params["host"] = params["host"]
+            
+        if params.get("port", None):
+            self.redis_params["port"] = int(params["port"])
+        
+        if params.get("prefix", ""):
+            self.prefix = params.get("prefix", "") + "/"
+        else:
+            self.prefix = "/"
+        self.redis = redis.Redis(**self.redis_params)
+        
+        logging.info("Loaded: %s", self.redis) 
+        logging.info("Prefix: %r", self.prefix)
+        
+    def redis_key(self, key_type, name):
+        return (key_type + ":" + self.prefix + name).encode("utf8")
 
-        self.redis = redis.Redis(**redis_params)
-
+    def _resultname(self, name):
+        return self.redis_key("result", name)
+    
+    def _lockname(self, name):
+        return self.redis_key("lock", name)
 
     def dump(self, object, name):
         '''
@@ -79,14 +89,14 @@ class redis_store(base_store):
         s = encode(object)
         if s:
             s = b64encode(s)
-        self.redis.set(_resultname(name), s)
+        self.redis.set(self._resultname(name), s)
 
 
     def can_load(self, name):
         '''
         can = can_load(name)
         '''
-        return self.redis.exists(_resultname(name))
+        return self.redis.exists(self._resultname(name))
 
 
     def load(self, name):
@@ -95,7 +105,7 @@ class redis_store(base_store):
 
         Loads the object identified by `name`.
         '''
-        s = self.redis.get(_resultname(name))
+        s = self.redis.get(self._resultname(name))
         if s:
             s = b64decode(s)
         return decode(s)
@@ -109,7 +119,7 @@ class redis_store(base_store):
 
         Returns whether any entry was actually removed.
         '''
-        return self.redis.delete(_resultname(name))
+        return self.redis.delete(self._resultname(name))
 
 
     def cleanup(self, active):
@@ -121,11 +131,11 @@ class redis_store(base_store):
         existing = list(self.list())
         for act in active:
             try:
-                existing.remove(_resultname(act))
+                existing.remove(self._resultname(act))
             except KeyError:
                 pass
         for superflous in existing:
-            self.redis.delete(_resultname(superflous))
+            self.redis.delete(self._resultname(superflous))
 
     def remove_locks(self):
         locks = self.redis.keys('lock:*')
@@ -134,19 +144,21 @@ class redis_store(base_store):
         return len(locks)
 
     def list(self):
-        existing = self.redis.keys('result:*')
+        prefix = self.redis_key("result", "")
+        existing = self.redis.keys(prefix + "*")
+        
         for ex in existing:
-            yield ex[len('result:'):]
+            yield ex[len(prefix):]
 
     def listlocks(self):
-        locks = self.redis.keys('lock:*')
-        for lk in locks:
-            yield lk[len('lock:')]
-
-
+        prefix = self.redis_key("result", "")
+        existing = self.redis.keys(prefix + "*")
+        
+        for ex in existing:
+            yield ex[len(prefix):]
+            
     def getlock(self, name):
-        return redis_lock(self.redis, name)
-
+        return redis_lock(self.redis, self._lockname(name))
 
     def close(self):
         # It seems some versions of the protocol are implemented differently
@@ -170,16 +182,15 @@ class redis_lock(base_lock):
         * is_locked(): check lock state
     '''
 
-    def __init__(self, redis, name):
-        self.name = _lockname(name)
+    def __init__(self, redis, lockname):
         self.redis = redis
-
+        self.lockname = lockname
 
     def get(self):
         '''
         lock.get()
         '''
-        previous = self.redis.getset(self.name, _LOCKED)
+        previous = self.redis.getset(self.lockname, _LOCKED)
         return (previous is None)
 
 
@@ -189,13 +200,13 @@ class redis_lock(base_lock):
 
         Removes lock
         '''
-        self.redis.delete(self.name)
+        self.redis.delete(self.lockname)
 
 
     def is_locked(self):
         '''
         locked = lock.is_locked()
         '''
-        status = self.redis.get(self.name)
+        status = self.redis.get(self.lockname)
         return status is not None and status == _LOCKED
 
