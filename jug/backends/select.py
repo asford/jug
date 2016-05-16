@@ -24,6 +24,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .redis_store import redis_store
+from .gcs_redis_store import gcs_redis_store
 from .file_store import file_store
 from .dict_store import dict_store
 
@@ -52,5 +53,7 @@ def select(jugdir):
         return dict_store()
     if jugdir.startswith('dict_store:'):
         return dict_store(jugdir[len('dict_store:'):])
+    if jugdir.startswith('gcs+redis:'):
+        return gcs_redis_store(connection_string = jugdir)
     return file_store(jugdir)
 
