@@ -11,10 +11,6 @@ import jug.backends.file_store
 import jug.backends.dict_store
 from jug.backends.redis_store import redis
 
-_storedir = 'jugtests'
-def _remove_file_store():
-    jug.backends.file_store.file_store.remove_store(_storedir)
-
 
 def test_stores():
     def load_get(store):
@@ -51,6 +47,7 @@ def test_stores():
             store.close()
         except redis.ConnectionError:
             raise SkipTest()
+
     def lock_remove(store):
         try:
             assert len(list(store.listlocks())) == 0
@@ -65,23 +62,25 @@ def test_stores():
             store.close()
         except redis.ConnectionError:
             raise SkipTest()
-    functions = (load_get, lock, lock_remove)
     stores = [
-            lambda: jug.backends.file_store.file_store('jugtests'),
+        lambda: jug.backends.file_store.file_store('jug_test_store'),
             jug.backends.dict_store.dict_store,
+        lambda: jug.redis_store.redis_store('redis://'),
             ]
-    if redis is not None:
-        stores.append(
-            lambda: jug.redis_store.redis_store('redis:')
-            )
-    teardowns = (None, _remove_file_store, None)
+    teardowns = [
+        lambda: jug.backends.file_store.file_store.remove_store("jug_test_store"),
+        None,
+        None,
+    ]
+
+    functions = (load_get, lock, lock_remove)
+
     for f in functions:
-        for s,tear in zip(stores,teardowns):
+        for store,tear in zip(stores,teardowns):
             f.teardown = tear
-            yield f, s()
+            yield f, store()
 
-
-@with_setup(teardown=_remove_file_store)
+@with_setup(teardown=lambda: jug.backends.file_store.file_store.remove_store("jug_test_numpy_store"))
 def test_numpy_store():
 
     try:
@@ -89,7 +88,7 @@ def test_numpy_store():
     except ImportError:
         raise SkipTest()
 
-    store = jug.backends.file_store.file_store(_storedir)
+    store = jug.backends.file_store.file_store("jug_test_numpy_store")
 
     key = 'mykey'
     arr = (np.arange(100) % 17).reshape((10, 10))
@@ -102,16 +101,16 @@ def test_numpy_store():
     store.remove(key)
     store.close()
 
-@with_setup(teardown=_remove_file_store)
+@with_setup(teardown=lambda: jug.backends.file_store.file_store.remove_store("jug_test_h5py_store"))
 def test_h5py_store():
+    store = jug.backends.file_store.file_store("jug_test_h5py_store")
+    store.create()
+
     try:
         import h5py
         import numpy
     except ImportError:
         raise SkipTest()
-
-    store = jug.backends.file_store.file_store(_storedir)
-    store.create()
 
     key = 'mykey'
 

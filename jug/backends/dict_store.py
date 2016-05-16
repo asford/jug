@@ -25,6 +25,8 @@ dict_store: an in-memory dictionary.
 Does not support multiple processes!
 '''
 
+import logging
+logger = logging.getLogger(__name__)
 from six.moves import cPickle as pickle
 from collections import defaultdict
 
@@ -117,10 +119,17 @@ class dict_store(base_store):
         Implement 'cleanup' command
         '''
         active = set(_resultname(t.hash()) for t in active)
-        existing = set(self.store.keys())
+        logger.debug("active: %s", active)
+        existing = set(k for k in self.store.keys() if k.startswith("result:"))
+        logger.debug("existing: %s", existing)
 
-        for k in existing.difference( active ):
+        inactive = existing - active
+        logger.debug("inactive: %s", inactive)
+
+        for k in inactive:
             del self.store[k]
+
+        return len(inactive)
 
     def remove_locks(self):
         '''

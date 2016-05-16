@@ -43,15 +43,26 @@ def test_complex():
 @task_reset
 def test_cleanup():
     store, space = jug.jug.init('jug/tests/jugfiles/tasklets.py', 'dict_store')
-    h = space['t'].hash()
     simple_execute()
+
+    h = jug.task.alltasks[-1].hash()
+    l = store.getlock(h)
+
+    del jug.task.alltasks[-1]
+    assert store.can_load(h)
+    assert not l.is_locked()
+
+    l.get()
+    assert store.can_load(h)
+    assert l.is_locked()
 
     opts = Options(default_options)
     opts.cleanup_locks_only = True
-    assert store.can_load(h)
     jug.jug.cleanup(store, opts)
     assert store.can_load(h)
+    assert not l.is_locked()
+
     opts.cleanup_locks_only = False
     jug.jug.cleanup(store, opts)
     assert not store.can_load(h)
-
+    assert not l.is_locked()

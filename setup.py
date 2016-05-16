@@ -69,6 +69,7 @@ setuptools.setup(name = 'Jug',
       packages = setuptools.find_packages(),
       scripts = ['bin/jug', 'bin/jug-execute'],
       test_suite = 'nose.collector',
+      tests_require = ["nose", "pyyaml"],
       install_requires=['six', 'redis'],
       )
 

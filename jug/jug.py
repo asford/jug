@@ -304,10 +304,13 @@ def cleanup(store, options):
     Implement 'cleanup' command
     '''
     if options.cleanup_locks_only:
+        logging.info("cleanup: cleanup_locks_only")
         removed = store.remove_locks()
     else:
+        logging.info("cleanup: cleanup")
         tasks = task.alltasks
         removed = store.cleanup(tasks)
+
     options.print_out('Removed %s files' % removed)
 
 def check(store, options):
