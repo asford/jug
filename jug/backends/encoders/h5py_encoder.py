@@ -1,5 +1,14 @@
+from .base import BaseEncoder
+
 import binascii
 import itertools
+import h5py
+
+import h5py.h5p
+if not "set_file_image" in dir(h5py.h5p.PropFAID):
+    import warnings
+    warnings.warn("h5py imported, but h5py.h5p.PropFAID.set_file_image not supported. Ensure h5py > 2.6 and hdf > 1.8.9.")
+    raise ImportError("h5py.h5p.PropFAID.set_file_image not supported.")
 
 # See http://www.hdfgroup.org/HDF5/doc/H5.format.html
 hdf5_format_signature = binascii.unhexlify("89 48 44 46 0d 0a 1a 0a".replace(" ", ""))
@@ -56,3 +65,34 @@ def detect_hdf5_signature(target_file, max_userblock_size = None):
         True if signature found, False otherwise.
     """
     return locate_hdf5_signature(target_file, max_userblock_size) is not None
+
+class H5PyEncoder(BaseEncoder):
+    max_userblock_size = 4096
+
+    @classmethod
+    def can_load(cls, file):
+        try:
+            return detect_hdf5_signature( file, cls.max_userblock_size )
+        finally:
+            file.seek(0)
+
+    @classmethod
+    def load(cls, file):
+        image = file.read()
+
+        fapl = h5py.h5p.create(h5py.h5p.FILE_ACCESS)
+        fapl.set_fapl_core(backing_store=False)
+        fapl.set_file_image(image)
+
+        fid = h5py.h5f.open("tf", h5py.h5f.ACC_RDONLY, fapl=fapl)
+        return h5py.File(fid)
+
+    @classmethod
+    def can_dump(cls, obj):
+        if type(obj) == h5py.File:
+            return True
+
+    @classmethod
+    def dump(cls, obj, file):
+        obj.flush()
+        file.write(obj.fid.get_file_image())

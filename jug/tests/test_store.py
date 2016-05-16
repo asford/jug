@@ -64,9 +64,9 @@ def test_stores():
             raise SkipTest()
     stores = [
         lambda: jug.backends.file_store.file_store('jug_test_store'),
-            jug.backends.dict_store.dict_store,
+        jug.backends.dict_store.dict_store,
         lambda: jug.redis_store.redis_store('redis://'),
-            ]
+    ]
     teardowns = [
         lambda: jug.backends.file_store.file_store.remove_store("jug_test_store"),
         None,
@@ -120,11 +120,10 @@ def test_h5py_store():
     store.dump( db, key)
     result_db = store.load(key)
 
-    assert result_db.filename == store._getfname(key)
     assert result_db.filename != db.filename
     assert result_db.mode == 'r'
 
     assert numpy.all( db["test_array"][:] == result_db["test_array"][:])
 
     invalid_store = jug.backends.dict_store.dict_store()
-    assert_raises(pickle.PicklingError, invalid_store.dump, db, key)
+    assert_raises(TypeError, invalid_store.dump, db, key)

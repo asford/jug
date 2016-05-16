@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 from .base import base_store
 from .encode import encode_to, decode_from
-from .file_manager import file_managers
 
 def create_directories(dname):
     '''
@@ -100,14 +99,7 @@ class file_store(base_store):
         fd, fname = tempfile.mkstemp('.jugtmp', 'jugtemp', self.tempdir())
         output = os.fdopen(fd, 'wb')
 
-        for manager in file_managers:
-            if manager.can_dump( obj ):
-                logger.debug("Resolved file_manager: %s obj: %s", manager, obj)
-                manager.dump( obj, output )
-                break
-        else:
-            logger.debug("Fallback to encode_to obj: %s", obj)
-            encode_to(obj, output)
+        encode_to(obj, output)
 
         output.close()
 
@@ -177,13 +169,7 @@ class file_store(base_store):
         fname = self._getfname(name)
         infile = open(fname, 'rb')
 
-        for manager in file_managers:
-            if manager.can_load( infile ):
-                logger.debug("Resolved file_manager: %s name: %s", manager, name)
-                return manager.load( infile )
-        else:
-            logger.debug("Fallback to decode_from name: %s", name)
-            return decode_from( infile )
+        return decode_from( infile )
 
     def remove(self, name):
         '''

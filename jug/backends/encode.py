@@ -25,221 +25,96 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 import logging
 logger = logging.getLogger(__name__)
 
-from six.moves import cPickle as pickle
 from six import BytesIO
 import six
-import zlib
+import gzip
 
-__all__ = ['encode', 'decode', 'encode_to', 'decode_from']
+__all__ = ['encode', 'decode', 'encode_to', 'decode_from', 'available_encoders']
 
-class BaseEncoder(object):
-    __metaclass__ = ABCMeta
-
-    @abstractproperty
-    def prefix(self):
-        raise NotImplementedError("prefix")
-
-    @abstractmethod
-    def decode_from(self, stream):
-        """Decode object from stream."""
-        raise NotImplementedError("decode_from")
-
-    @abstractmethod
-    def can_encode(self, target):
-        """Return True if can encode target, else False."""
-        raise NotImplementedError("can_encode")
-
-    @abstractmethod
-    def write(self, target, stream):
-        """Encode target object to stream."""
-        raise NotImplementedError("write")
-
-class NDArrayEncoder(BaseEncoder):
-    prefix = six.b('N')
-
-    @classmethod
-    def can_encode(cls, target):
-        return type(target) == numpy.ndarray
-
-    @classmethod
-    def write(cls, target, stream):
-        assert isinstance( target, numpy.ndarray )
-
-        stream.write(cls.prefix)
-        numpy.save(stream, target)
-
-    @classmethod
-    def decode_from(cls, stream):
-        return numpy.load(stream)
-
-class PickleEncoder(BaseEncoder):
-    prefix = six.b('P')
-
-    @classmethod
-    def can_encode(cls, obj):
-        return True
-
-    @classmethod
-    def write(cls, target, stream):
-        stream.write(cls.prefix)
-        pickle.dump( target, stream, 2 )
-
-    @classmethod
-    def decode_from(cls, stream):
-        return pickle.load(stream)
-
-encoder_set = []
+available_encoders = []
 try:
-    import numpy
-    encoder_set.append( NDArrayEncoder() )
+    from .encoders.h5py_encoder import H5PyEncoder
+    available_encoders.append( H5PyEncoder() )
 except ImportError:
     pass
 
-encoder_set.append(PickleEncoder())
+try:
+    from .encoders.numpy_encoder import NumpyEncoder
+    available_encoders.append( NumpyEncoder() )
+except ImportError:
+    pass
+
+from .encoders.pickle_encoder import PickleEncoder
+
+available_encoders.append(PickleEncoder())
 
 def encode(obj):
-    '''
-    s = encode(obj)
+    """Encode object to bytes.
 
-    Return a string (byte-array) representation of obj.
+    Encode object via first available encoder to bytes.
 
     Parameters
     ----------
-      obj : Any thing that is pickle()able
+      obj : Pickle-able or encodable object.
 
     Returns
     -------
-      s : string (byte array).
+      s : bytes
 
     See
     ---
       `decode`
-    '''
+    """
     output = BytesIO()
     encode_to(obj, output)
     return output.getvalue()
 
 def encode_to(obj, stream):
-    '''
-    encode_to(obj, stream)
+    """Encode object to output stream.
 
-    Encodes the obj into the stream ``stream``
+    Encode object via first available encoder to output stream.
 
     Parameters
     ----------
-    obj : Any object
-    stream : file-like object
-    '''
-    if obj is None:
-        logger.debug("encode_to obj: None")
-        return
+      obj : Pickle-able or encodable object.
+      stream : File-like object.
 
-    stream = compress_stream(stream)
-    for e in encoder_set:
-        if e.can_encode(obj):
+    Returns
+    -------
+      s : bytes
+
+    See
+    ---
+      `decode`
+    """
+    stream = gzip.GzipFile(fileobj=stream, mode="wb")
+
+    for e in available_encoders:
+        if e.can_dump(obj):
             logger.debug("Resolved encoder: %s obj: %s", e, obj)
-            e.write(obj, stream)
-            break
+            e.dump(obj, stream)
+            stream.flush()
+            return
     else:
         raise ValueError("No valid encoder for obj.", obj)
 
-    stream.flush()
-
-class compress_stream(object):
-    def __init__(self, stream):
-        self.stream = stream
-        self.C = zlib.compressobj()
-
-    def write(self, s):
-        self.stream.write(self.C.compress(s))
-
-    def flush(self):
-        self.stream.write(self.C.flush())
-        self.stream.flush()
-
-class decompress_stream(object):
-    def __init__(self, stream, block=8192):
-        self.stream = stream
-        self.D = zlib.decompressobj()
-        self.block = block
-        self.lastread = six.b('')
-        self.queue = six.b('')
-
-    def read(self, nbytes):
-        res = six.b('')
-        if self.queue:
-            if len(self.queue) >= nbytes:
-                res = self.queue[:nbytes]
-                self.queue = self.queue[nbytes:]
-                return res
-            res = self.queue
-            self.queue = b''
-
-        if self.D.unconsumed_tail:
-            res += self.D.decompress(self.D.unconsumed_tail, nbytes - len(res))
-        while len(res) < nbytes:
-            buf = self.stream.read(self.block)
-            if not buf:
-                res += self.D.flush()
-                break
-            res += self.D.decompress(buf, nbytes - len(res))
-        self.lastread = res
-        return res
-
-    def seek(self, offset, whence):
-        if whence != 1:
-            raise NotImplementedError
-        while offset > 0:
-            nbytes = min(offset, self.block)
-            self.read(nbytes)
-            offset -= nbytes
-        if offset < 0:
-            if offset > len(self.lastread):
-                raise ValueError('seek too far')
-            skip = len(self.lastread) + offset
-            self.queue = self.lastread[skip:]
-
-    def readline(self):
-        qi = self.queue.find(six.b('\n'))
-        if qi >= 0:
-            qi += 1
-            res = self.queue[:qi]
-            self.queue = self.queue[qi:]
-            return res
-        line = six.b('')
-        while True:
-            block = self.read(self.block)
-            if not block:
-                return line
-            ln = block.find(six.b('\n'))
-            if ln == -1:
-                line += block
-            else:
-                ln += 1
-                line += block[:ln]
-                self.seek(ln-len(block), 1)
-                return line
-        return line
-
 def decode(s):
-    '''
-    object = decode(s)
+    '''Decode object from bytes.
 
     Reverses `encode`.
 
     Parameters
     ----------
-      s : a string representation of the object.
+      s : bytes representation of object
 
     Returns
     -------
-      object : the object
+      obj : the object
     '''
     return decode_from(BytesIO(s))
 
 def decode_from(stream):
-    '''
-    object = decode_from(stream)
+    '''Decode object from stream.
 
     Decodes the object from the stream ``stream``
 
@@ -249,17 +124,13 @@ def decode_from(stream):
 
     Returns
     -------
-    object : decoded object
+    obj : decoded object
     '''
-    stream = decompress_stream(stream)
-    prefix = stream.read(1)
-    if not prefix:
-        logger.debug("decode_from without prefix. return None")
-        return None
+    stream = gzip.GzipFile(fileobj=stream, mode="rb")
 
-    for e in encoder_set:
-        if prefix == e.prefix:
+    for e in available_encoders:
+        if e.can_load(stream):
             logger.debug("Resolved decoder: %s", e)
-            return e.decode_from(stream)
+            return e.load(stream)
     else:
-        raise IOError("jug.backend.decode_from: unknown prefix '%s'" % prefix)
+        raise ValueError("No valid decoder for stream.")

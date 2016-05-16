@@ -3,6 +3,8 @@ import h5py
 import tempfile
 import functools
 
+__all__ = ["H5TemporaryFile",]
+
 def H5Temporary_close(handle):
     """Wrapper generator to support File.close for H5TemporaryFile files."""
 
