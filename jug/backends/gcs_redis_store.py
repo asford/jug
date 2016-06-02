@@ -47,12 +47,15 @@ except ImportError as e:
 
 _LOCKED = 1
 
+redis_connection_pattern = r"(?P<host>[A-Za-z0-9\.\-]+)(\:(?P<port>[0-9]+))?"
+
 store_connection_pattern  = re.compile(
-    r"gcs\+redis://"
+    r"redis\+gs://"
+    r"(?P<redis>" + redis_connection_pattern + r"\+)?"
     r"(?P<bucket>[A-Za-z0-9\.\-]+)"
-    r"\+(?P<redis_host>[A-Za-z0-9\.\-]+)(\:(?P<port>[0-9]+))?"
     r"/?(?P<prefix>.+)?"
 )
+
 
 def _delete_keys_script(key_pattern):
     """Return script deleting keys matching given pattern for use with redis exec."""
@@ -65,36 +68,63 @@ def _delete_keys_script(key_pattern):
 
 
 class gcs_redis_store(base_store):
+
+    @property
+    def default_redis_parameters(self):
+        if "JUG_DEFAULT_REDIS" in os.environ:
+            environ_params = re.match(redis_connection_pattern, os.environ["JUG_DEFAULT_REDIS"])
+            if not environ_params:
+                logger.error(
+                    'Invalid os.environ["JUG_DEFAULT_REDIS"]: %s',
+                    os.environ["JUG_DEFAULT_REDIS"]
+                )
+                raise ValueError(
+                    'Invalid os.environ["JUG_DEFAULT_REDIS"]: %s' %
+                    os.environ["JUG_DEFAULT_REDIS"]
+                )
+            else:
+                logger.info(
+                    'Resolved os.environ["JUG_DEFAULT_REDIS"]: %s',
+                    environ_params.groupdict()
+                )
+                return environ_params.groupdict()
+        else:
+            return {}
+
     def __init__(self, connection_string):
         if _import_error:
             logger.error("Unable to import gcloud or redis modules.")
             raise _import_error
 
-        self.redis_params = {}
         match = store_connection_pattern.match(connection_string)
         if not match:
             raise ValueError("Unable to parse gcs_redis connection string: %r", connection_string)
 
         params = match.groupdict()
         logger.info('Parsed %r params: %s' % (connection_string, params))
+
+        if not params["redis"]:
+            params.update(self.default_redis_parameters)
+        
+        self.redis_params = {}
+        if params["host"]:
+            self.redis_params["host"] = params["host"]
+        if params["port"]:
+            self.redis_params["port"] = int(params["port"])
+        self.redis = redis.Redis(**self.redis_params)
         
         self.bucket_name = params["bucket"]
         self.client = gcloud.storage.Client()
         self.bucket = self.client.get_bucket(self.bucket_name)
 
-        self.redis_params["host"] = params["redis_host"]
-        if params.get("port", None):
-            self.redis_params["port"] = int(params["port"])
-
-        if params.get("prefix", ""):
+        if params["prefix"]:
             self.prefix = params.get("prefix", "") + "/"
         else:
             self.prefix = "/"
-        self.redis = redis.Redis(**self.redis_params)
         
-        logging.info("bucket: %s", self.bucket)
-        logging.info("redis: %s", self.redis) 
-        logging.info("prefix: %r", self.prefix)
+        logger.info("redis: %s", self.redis) 
+        logger.info("bucket: %s", self.bucket)
+        logger.info("prefix: %r", self.prefix)
         
     def storage_key(self, name):
         return self.prefix + name
@@ -145,7 +175,7 @@ class gcs_redis_store(base_store):
         try:
             self.bucket.blob(self.storage_key(name)).delete()
         except:
-            logging.exception("Error removing storage blob: %s" % self.storage_key)
+            logger.exception("Error removing storage blob: %s" % self.storage_key)
         return removed
 
     def sync(self):

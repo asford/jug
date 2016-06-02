@@ -53,7 +53,7 @@ def select(jugdir):
         return dict_store()
     if jugdir.startswith('dict_store:'):
         return dict_store(jugdir[len('dict_store:'):])
-    if jugdir.startswith('gcs+redis:'):
+    if jugdir.startswith('redis+gs:'):
         return gcs_redis_store(connection_string = jugdir)
     return file_store(jugdir)
 
