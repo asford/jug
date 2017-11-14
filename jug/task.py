@@ -24,6 +24,7 @@ __all__ = [
     'recursive_dependencies',
     'walk_dependencies',
     'TaskGenerator',
+    "jug_name",
     'iteratetask',
     'value',
     'can_load',
@@ -147,6 +148,15 @@ class TaskBase(TaskletMixin):
     def hash(self):
         '''Returns the hash for this task.'''
         return self.__jug_hash__()
+
+def jug_name(jug_name):
+    """Decorator to override the function name for jug's task hashing."""
+
+    def set_jug_name(f):
+        f.__jug_name__ = jug_name
+        return f
+
+    return set_jug_name
 
 class Task(TaskBase):
     '''
