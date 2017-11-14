@@ -194,8 +194,7 @@ def _status_cached(options):
 
 def _status_nocache(options):
     logger.debug("Executing _status_nocache.")
-    store,_ = jug.init(options.jugfile, options.jugdir)
-    Task.store = memoize_store(store, list_base=True)
+    jug.init(options.jugfile, options.jugdir)
 
     tasks_waiting = defaultdict(int)
     tasks_ready = defaultdict(int)

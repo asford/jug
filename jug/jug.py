@@ -154,11 +154,12 @@ class Executor(object):
             tasks_locked   = []
             tasks_executed = []
 
-            m_store = backends.memoize_store(self.store, list_base=True)
             for t in tasks_current:
-                if t.can_load(m_store):
+                if t.can_load():
                     tasks_finished.append(t)
-                elif t.can_run(m_store):
+                elif t.is_locked():
+                    tasks_locked.append(t)
+                elif t.can_run():
                     tasks_ready.append(t)
                 else:
                     tasks_waiting.append(t)
@@ -167,6 +168,7 @@ class Executor(object):
                     [
                         ("waiting" , Counter( [t.display_name for t in tasks_waiting])),
                         ("ready" , Counter( [t.display_name for t in tasks_ready])),
+                        ("locked" , Counter( [t.display_name for t in tasks_locked])),
                         ("finished" , Counter( [t.display_name for t in tasks_finished])),
                     ])
             logger.info("Pre-execute task status:\n" + "\n".join(task_summary_table))
