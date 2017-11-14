@@ -3,17 +3,16 @@ logger = logging.getLogger(__name__)
 
 from .base import BaseEncoder
 from six.moves import cPickle as pickle
-import pickletools
 
 class PickleEncoder(BaseEncoder):
 
     @classmethod
     def can_load(cls, file):
         opt_bytes = file.read(2)
-        first_opt = pickletools.code2op.get(opt_bytes[0], None)
+        assert(isinstance(opt_bytes, bytes))
 
-        if first_opt and first_opt.name == "PROTO":
-            version = ord(opt_bytes[1])
+        if opt_bytes[0] == b'\x80'[0]:
+            version = opt_bytes[1]
             if version <= pickle.HIGHEST_PROTOCOL:
                 return True
             else:
@@ -25,7 +24,7 @@ class PickleEncoder(BaseEncoder):
     @classmethod
     def load(cls, file):
         return pickle.load(file)
-    
+
     @classmethod
     def can_dump(cls, obj):
         return True

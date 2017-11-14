@@ -32,14 +32,14 @@ def locate_hdf5_signature(target_file, max_userblock_size = None):
     Optionally search up to a maximum userblock size.
 
     Args:
-        target_file - File-like object supporting seek and read, function modified file location.
+        target_file - File-like object supporting seek and read, function modifies file location.
         max_userblock_size - Maximum target userblock size.
 
     Returns:
         Signature byte index, if found, otherwise None.
     """
-    if isinstance(target_file, basestring):
-        with open(target_file, 'r') as target_file_handle:
+    if isinstance(target_file, bytes) or isinstance(target_file, str):
+        with open(target_file, 'rb') as target_file_handle:
             return locate_hdf5_signature( target_file_handle, max_userblock_size )
 
     for search_index in hdf5_signature_indicies(max_userblock_size):
@@ -71,10 +71,7 @@ class H5PyEncoder(BaseEncoder):
 
     @classmethod
     def can_load(cls, file):
-        try:
-            return detect_hdf5_signature( file, cls.max_userblock_size )
-        finally:
-            file.seek(0)
+        return detect_hdf5_signature( file, cls.max_userblock_size )
 
     @classmethod
     def load(cls, file):

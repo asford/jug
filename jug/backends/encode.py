@@ -32,6 +32,7 @@ import gzip
 __all__ = ['encode', 'decode', 'encode_to', 'decode_from', 'available_encoders']
 
 available_encoders = []
+
 try:
     from .encoders.h5py_encoder import H5PyEncoder
     available_encoders.append( H5PyEncoder() )
@@ -132,5 +133,7 @@ def decode_from(stream):
         if e.can_load(stream):
             logger.debug("Resolved decoder: %s", e)
             return e.load(stream)
+        else:
+            stream.seek(0)
     else:
         raise ValueError("No valid decoder for stream.")
