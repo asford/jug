@@ -244,6 +244,21 @@ class Executor(object):
             else:
                 raise
 
+def inline_execute(tasks, store=None, aggressive_unload=False):
+    if store is None:
+        store = Task.store
+
+    executor = Executor(
+            store, tasks,
+            execute_wait_cycle_time_secs = 0,
+            aggressive_unload = aggressive_unload,
+            debug_mode = False,
+            pdb = False,
+            execute_keep_going = False,
+        )
+
+    tasks_executed_in_cycle = executor.execute_loop(0)
+
 def execute(options):
     '''
     execute(options)

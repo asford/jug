@@ -16,6 +16,7 @@ There are two main alternatives:
 from abc import ABCMeta, abstractmethod, abstractproperty
 
 from .hash import new_hash_object, hash_update, hash_one
+import functools
 
 __all__ = [
     'Task',
@@ -25,6 +26,8 @@ __all__ = [
     'TaskGenerator',
     'iteratetask',
     'value',
+    'can_load',
+    'tasks_for_value',
     ]
 
 alltasks = []
@@ -193,10 +196,12 @@ class Task(TaskBase):
             (default: True)
         '''
         assert self.can_run()
-        assert save, "task.run(save=False,...) not supported."
 
         if debug_mode:
             self._check_hash()
+
+        if self.can_load() and not force:
+            return
 
         name = self.hash()
         self._result = self._execute()
@@ -550,7 +555,7 @@ def walk_dependencies(t):
 def tasks_for_value(*args, **kwargs):
     """Walk elem, yielding all contained tasks.
 
-    Walks elem recursively, handling lists, dicts and tuples, yielding
+    Walks elem recursively, handling lists, sets, dicts and tuples, yielding
     all tasks contained within elem. Can be used to extract all tasks needed
     to successfully resolve elem's value.
 
@@ -560,17 +565,20 @@ def tasks_for_value(*args, **kwargs):
         >>> list(tasks_in_value([1, 2, Task(...)]))
         [Task(...)]
     """
-    queue = [args, kwargs.values()]
-    while queue:
-        elems = queue.pop()
-        for e in elems:
-            if isinstance(e, TaskBase):
-                yield e
-            elif isinstance(e, (list, tuple)):
-                queue.append(e)
-            elif isinstance(e, dict):
-                queue.append(iter(e.values()))
+    queue = []
+    queue.extend(args)
+    queue.extend(kwargs.values())
 
+    while queue:
+        e = queue.pop()
+        if isinstance(e, TaskBase):
+            yield e
+        elif isinstance(e, (list, tuple, set)):
+            queue.extend(e)
+        elif isinstance(e, dict):
+            queue.extend(e.values())
+
+@functools.singledispatch
 def value(elem):
     '''
     value = value(obj)
@@ -590,17 +598,22 @@ def value(elem):
     '''
     if isinstance(elem, TaskBase):
         return elem.value()
-    elif type(elem) == list:
-        return [value(e) for e in elem]
-    elif type(elem) == tuple:
-        return tuple([value(e) for e in elem])
-    elif type(elem) == dict:
-        return dict((x,value(y)) for x,y in elem.items())
     elif hasattr(elem, '__jug_value__'):
         return elem.__jug_value__()
     else:
         return elem
 
+@value.register(list)
+@value.register(tuple)
+@value.register(set)
+def container_to_value(container):
+    return container.__class__(map(value, container))
+
+@value.register(dict)
+def dict_to_value(container):
+    return container.__class__(zip(container.keys(), map(value, container.values())))
+
+@functools.singledispatch
 def can_load(elem):
     '''
     value = value(obj)
@@ -619,16 +632,7 @@ def can_load(elem):
         True if the object tree can be loaded, false otherwise.
     '''
 
-    if isinstance(elem, TaskBase):
-        return elem.can_load()
-    elif type(elem) == list:
-        return all(can_load(e) for e in elem)
-    elif type(elem) == tuple:
-        return all(can_load(e) for e in elem)
-    elif type(elem) == dict:
-        return all(can_load(e) for e in elem.values())
-    else:
-        return True
+    return all(t.can_load() for t in tasks_for_value(elem))
 
 def CachedFunction(f,*args,**kwargs):
     '''
