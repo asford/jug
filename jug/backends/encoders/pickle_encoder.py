@@ -8,7 +8,7 @@ class PickleEncoder(BaseEncoder):
 
     @classmethod
     def can_load(cls, file):
-        opt_bytes = file.read(2)
+        opt_bytes = file.peek(2)
         assert(isinstance(opt_bytes, bytes))
 
         if opt_bytes[0] == b'\x80'[0]:

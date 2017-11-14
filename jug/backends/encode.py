@@ -25,9 +25,12 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 import logging
 logger = logging.getLogger(__name__)
 
+import io
+
 from six import BytesIO
 import six
-import gzip
+from .open_compressed import open_compressed
+
 
 __all__ = ['encode', 'decode', 'encode_to', 'decode_from', 'available_encoders']
 
@@ -88,16 +91,20 @@ def encode_to(obj, stream):
     ---
       `decode`
     """
-    stream = gzip.GzipFile(fileobj=stream, mode="wb")
+    try:
+        import snappy_stream
+        stream = snappy_stream.SnappyWriteWrapper(stream, owns_sink=False)
+    except ImportError:
+        pass
 
     for e in available_encoders:
         if e.can_dump(obj):
-            logger.debug("Resolved encoder: %s obj: %s", e, obj)
+            logger.debug("Resolved encoder: %s obj: %s", e, type(obj))
             e.dump(obj, stream)
             stream.flush()
             return
     else:
-        raise ValueError("No valid encoder for obj.", obj)
+        raise ValueError("No valid encoder for obj: %s" % type(obj))
 
 def decode(s):
     '''Decode object from bytes.
@@ -127,13 +134,13 @@ def decode_from(stream):
     -------
     obj : decoded object
     '''
-    stream = gzip.GzipFile(fileobj=stream, mode="rb")
+
+    stream = open_compressed(stream)
+    stream = io.BufferedReader(stream)
 
     for e in available_encoders:
         if e.can_load(stream):
             logger.debug("Resolved decoder: %s", e)
             return e.load(stream)
-        else:
-            stream.seek(0)
     else:
         raise ValueError("No valid decoder for stream.")

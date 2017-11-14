@@ -1,11 +1,13 @@
 from .base import BaseEncoder
+import io
 import numpy
 
 class NDArrayEncoder(BaseEncoder):
     @classmethod
     def can_load(cls, file):
+        test_bytes = file.peek(1024)
         try:
-            magic = numpy.lib.npyio.format.read_magic(file)
+            magic = numpy.lib.npyio.format.read_magic(io.BytesIO(test_bytes))
             if magic:
                 return True
         except ValueError:

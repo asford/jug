@@ -1,5 +1,6 @@
 from .base import BaseEncoder
 
+import io
 import binascii
 import itertools
 import h5py
@@ -71,7 +72,9 @@ class H5PyEncoder(BaseEncoder):
 
     @classmethod
     def can_load(cls, file):
-        return detect_hdf5_signature( file, cls.max_userblock_size )
+        test_bytes = file.peek(cls.max_userblock_size)
+
+        return detect_hdf5_signature( io.BytesIO(test_bytes) , cls.max_userblock_size )
 
     @classmethod
     def load(cls, file):
