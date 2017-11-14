@@ -248,6 +248,8 @@ def inline_execute(tasks, store=None, aggressive_unload=False):
     if store is None:
         store = Task.store
 
+    tasks = list(task.tasks_for_value(tasks))
+
     executor = Executor(
             store, tasks,
             execute_wait_cycle_time_secs = 0,
