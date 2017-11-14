@@ -2,6 +2,7 @@
 # Copyright (C) 2013, Luis Pedro Coelho <luis@luispedro.org>
 # vim: set ts=4 sts=4 sw=4 expandtab smartindent:
 # LICENSE: MIT
+from __future__ import print_function
 '''
 Jug.IO module
 
@@ -158,7 +159,7 @@ def get_terminal_size():
     if current_os in ['Linux', 'Darwin'] or current_os.startswith('CYGWIN'):
         tuple_xy = _get_terminal_size_linux()
     if tuple_xy is None:
-        print "default"
+        print("default")
         tuple_xy = (80, 25)      # default value
     return tuple_xy
 
